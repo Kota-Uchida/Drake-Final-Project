@@ -9,4 +9,36 @@ Both drake and uv offers official docker images, so for this project, we will co
 
 Follow the instruction below.
 
-1. 
+### Setup
+1. Clone the git repository.
+   ```
+    git clone git@github.com:Kota-Uchida/Drake-Final-Project.git
+   ```
+   If you have trouble creating ssh connection, refer to https://docs.github.com/en/authentication/connecting-to-github-with-ssh.
+
+2. Build docker container. (Only in the first time)
+    ```
+    cd drake
+    docker compose build
+    ```
+    If the `docker compose` command doesn't work, you should try `docker-compose` (with hyphen).
+
+3. Run the docker container.
+   ```
+   docker compose up -d
+   docker exec -it drake bash
+   ```
+   Or you can use the bash script
+   ```
+   bash docker-run.sh
+   ```
+
+Congratulations! Now you have entered the docker environment.
+
+### Docker in VS Code
+Here are some tips to use docker on VS Code.
+1. Install extensions from "Container Tools", "Dev Containers", and "Docker".
+2. Open the terminal with `Ctrl+@` and move to the project directory. 
+3. Run `docker-conpose up -d`.
+4. Click the button in the left-bottom `><` and click `Attach to the running container`
+5. VS Code will open a new tab for the container.
