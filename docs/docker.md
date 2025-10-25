@@ -33,12 +33,18 @@ Follow the instruction below.
    bash docker-run.sh
    ```
 
+4. Run `build.sh` to install the custom libraries.
+   ```
+   cd root/workspace/
+   bash build.sh
+   ```
+
 Congratulations! Now you have entered the docker environment.
 
 ### Docker in VS Code
 Here are some tips to use docker on VS Code.
 1. Install extensions from "Container Tools", "Dev Containers", and "Docker".
 2. Open the terminal with `Ctrl+@` and move to the project directory. 
-3. Run `docker-conpose up -d`.
+3. Run `docker-compose up -d`.
 4. Click the button in the left-bottom `><` and click `Attach to the running container`
 5. VS Code will open a new tab for the container.
