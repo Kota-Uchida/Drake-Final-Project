@@ -8,6 +8,7 @@ services:
     image: drake:my-project
     container_name: drake
     volumes:
+      - ~/.ssh:/root/.ssh:ro
       - .:/root/workspace
       - /root/workspace/.venv
     working_dir: /root/workspace
