@@ -19,4 +19,5 @@ if(NOT pybind11_FOUND)
 	FetchContent_MakeAvailable(pybind11)
 endif()
 
+add_subdirectory(pybind-example)
 add_subdirectory(example)
