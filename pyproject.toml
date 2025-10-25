@@ -1,0 +1,13 @@
+[project]
+name = "drake"
+version = "0.1.0"
+description = "Drake environment for final project"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "matplotlib>=3.10.7",
+    "meshcat>=0.3.2",
+    "numpy>=2.2.6",
+    "pybind11>=3.0.1",
+    "scipy>=1.15.3",
+]

@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  drake:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: drake:my-project
+    container_name: drake
+    volumes:
+      - .:/root/workspace
+      - /root/workspace/.venv
+    working_dir: /root/workspace
+    network_mode: host
+    stdin_open: true
+    tty: true
+    command: bash
