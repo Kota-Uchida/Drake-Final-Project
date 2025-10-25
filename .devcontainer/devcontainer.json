@@ -1,5 +1,5 @@
 {
     "dockerComposeFile": "../docker-compose.yaml",
     "service": "drake",
-    "workspaceFolder": "/drake",
+    "workspaceFolder": "/home/drake",
 }

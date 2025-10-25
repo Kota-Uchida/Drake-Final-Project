@@ -8,7 +8,7 @@ FROM robotlocomotion/drake:noble
 COPY --from=uv /uv /uvx /usr/local/bin/
 
 # Create working directory
-WORKDIR /drake
+WORKDIR /home/drake
 
 # System dependencies
 RUN apt-get update && apt-get install -y \
@@ -25,15 +25,15 @@ RUN --mount=type=cache,target=/.cache/uv \
     uv sync --locked --no-install-project
 
 # Add full source code
-ADD . /drake
+ADD . /home/drake
 
 # Final sync to install your project itself
 RUN --mount=type=cache,target=/.cache/uv \
         uv sync --locked
 
 # Activate .venv for runtime
-ENV PATH="/drake/.venv/bin:$PATH"
+ENV PATH="/home/drake/.venv/bin:$PATH"
 
-RUN git config --global --add safe.directory /drake
+RUN git config --global --add safe.directory /home/drake
 
 CMD ["bash"]
