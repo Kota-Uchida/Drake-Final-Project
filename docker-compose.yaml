@@ -8,10 +8,10 @@ services:
     image: drake:my-project
     container_name: drake
     volumes:
-      - ~/.ssh:/root/.ssh:ro
-      - .:/root/workspace
-      - /root/workspace/.venv
-    working_dir: /root/workspace
+      - ~/.ssh/id_rsa:/root/.ssh/id_rsa
+      - .:/drake
+      - /drake/.venv
+    working_dir: /drake
     network_mode: host
     stdin_open: true
     tty: true
