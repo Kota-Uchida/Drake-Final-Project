@@ -1,3 +1,7 @@
+[build-systems]
+requires = ["setuptools>=61.0", "pybind11","scikit-build-core"]
+build-backend = "scikit_build_core.build"
+
 [project]
 name = "drake"
 version = "0.1.0"
@@ -10,4 +14,6 @@ dependencies = [
     "numpy>=2.2.6",
     "pybind11>=3.0.1",
     "scipy>=1.15.3",
+    "setuptools>=80.9.0",
+    "scikit-build-core"
 ]
