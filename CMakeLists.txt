@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(drake_final_project LANGUAGES CXX)
+project(drake LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -21,3 +21,4 @@ endif()
 
 add_subdirectory(pybind-example)
 add_subdirectory(example)
+add_subdirectory(src)
