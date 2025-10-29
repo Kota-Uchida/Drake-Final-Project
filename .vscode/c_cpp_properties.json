@@ -1,0 +1,23 @@
+{
+  "configurations": [
+    {
+      "name": "Linux (DevContainer)",
+      "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+      "intelliSenseMode": "linux-gcc-x64",
+      "compilerPath": "/usr/bin/g++",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "/opt/drake/include",
+        "/opt/drake/include/drake",
+        "/opt/drake/include/pybind11",
+        "/usr/include/eigen3",
+        "/usr/local/include",
+        "/usr/include"
+      ],
+      "defines": [],
+      "cStandard": "c11",
+      "cppStandard": "c++17"
+    }
+  ],
+  "version": 4
+}
