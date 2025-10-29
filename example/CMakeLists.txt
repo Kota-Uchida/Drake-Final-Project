@@ -4,6 +4,6 @@ project(example_projects)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_subdirectory(pendulum)
+add_subdirectory(atlas)
 add_subdirectory(iiwa)
 
