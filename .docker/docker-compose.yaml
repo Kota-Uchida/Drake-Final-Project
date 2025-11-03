@@ -1,16 +1,14 @@
-version: '3.8'
-
 services:
   drake:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: .docker/Dockerfile
     image: drake:my-project
     container_name: drake
     volumes:
       #- /home/internal/.ssh:/root/.ssh:ro 
       # If you want to use git from inside the docker, rewrite above to your SSH key Location
-      - .:/home/drake
+      - ..:/home/drake
       - /home/drake/.venv
     working_dir: /home/drake
     network_mode: host

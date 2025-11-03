@@ -27,6 +27,9 @@ RUN --mount=type=cache,target=/.cache/uv \
 # Add full source code
 ADD . /home/drake
 
+COPY .docker/aliases.sh /etc/profile.d/aliases.sh
+RUN echo "source /etc/profile.d/aliases.sh" >> /etc/bash.bashrc
+
 # Final sync to install your project itself
 RUN --mount=type=cache,target=/.cache/uv \
         uv sync --locked
