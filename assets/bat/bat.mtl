@@ -1,0 +1,23 @@
+newmtl BatMaterial
+Ka 1.000000 1.000000 1.000000
+Kd 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ns 200.0
+Ni 1.0
+illum 2
+
+# Base color map (diffuse/albedo)
+map_Kd textures/BaseballBat_bcolor.png
+
+# Normal map
+map_Bump textures/BaseballBat_norm.png
+
+# Roughness map (optional)
+# map_Pr textures/BaseballBat_rough.png
+
+# Metallic map (optional)
+# map_Pm textures/BaseballBat_metal.png
+
+# Specular map (optional)
+# map_Ks textures/BaseballBat_spec.png
+

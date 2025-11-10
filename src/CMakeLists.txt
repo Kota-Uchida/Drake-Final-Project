@@ -7,5 +7,5 @@ set(PYBIND11_FINDPYTHON ON)
 
 find_package(pybind11 CONFIG QUIET)
 
-add_subdirectory(bindings)
-add_subdirectory(drake_core)
+add_subdirectory(cpp)
+
