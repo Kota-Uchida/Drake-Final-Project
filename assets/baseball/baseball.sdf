@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="baseball">
+    <link name="baseball_link">
+      <visual name="ball_visual">
+        <geometry>
+          <mesh>
+            <uri>baseball.obj</uri>
+            <scale>0.01 0.01 0.01</scale>
+          </mesh>
+        </geometry>
+      </visual>
+      <collision name="ball_collision">
+        <geometry>
+          <sphere><radius>0.01</radius></sphere>
+        </geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>

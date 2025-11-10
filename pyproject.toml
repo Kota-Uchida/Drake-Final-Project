@@ -1,9 +1,13 @@
-[build-systems]
+[build-system]
 requires = ["setuptools>=61.0", "pybind11","scikit-build-core"]
 build-backend = "scikit_build_core.build"
 
+[tool.pytest.ini_options]
+testpaths = ["test/python"]
+addopts = "-v --disable-warnings"
+
 [project]
-name = "drake"
+name = "drake-final-project"
 version = "0.1.0"
 description = "Drake environment for final project"
 readme = "README.md"
@@ -15,5 +19,7 @@ dependencies = [
     "pybind11>=3.0.1",
     "scipy>=1.15.3",
     "setuptools>=80.9.0",
-    "scikit-build-core"
+    "scikit-build-core",
+    "pydrake>=0.2.1",
+    "drake>=1.46.0",
 ]
