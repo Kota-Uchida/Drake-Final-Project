@@ -6,7 +6,7 @@ from pydrake.all import (AddMultibodyPlantSceneGraph, Context, Diagram,
                          StartMeshcat)
 
 assets_path = os.path.join("../../assets/")
-ball_path = os.path.join(assets_path, "baseball2", "baseball.sdf")
+ball_path = os.path.join(assets_path, "baseball", "baseball.sdf")
 bat_path = os.path.join(assets_path, "bat", "bat.sdf")
 
 
