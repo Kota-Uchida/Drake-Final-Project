@@ -2,7 +2,11 @@ services:
   drake:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: dockerfile
+    user: "${UID}:${GID}"
+    environment:
+      - UID=${UID}
+      - GID=${GID}
     image: drake:my-project
     container_name: drake
     volumes:

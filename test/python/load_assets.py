@@ -9,7 +9,6 @@ assets_path = os.path.join("../../assets/")
 ball_path = os.path.join(assets_path, "baseball", "baseball.sdf")
 bat_path = os.path.join(assets_path, "bat", "bat.sdf")
 
-
 meshcat = StartMeshcat()
 builder = DiagramBuilder()
 plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=1e-4)
