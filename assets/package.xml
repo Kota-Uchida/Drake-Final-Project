@@ -1,0 +1,5 @@
+<package format="2">
+  <name>assets</name>
+  <version>0.0.1</version>
+  <description>Assets for drake simulation</description>
+</package>

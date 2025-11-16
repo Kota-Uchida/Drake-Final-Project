@@ -1,5 +1,26 @@
 {
-    "dockerComposeFile": "../docker/docker-compose.yaml",
-    "service": "drake",
-    "workspaceFolder": "/home/drake",
+  "name": "drake-dev",
+  "image": "drake:my-project",
+
+  "remoteUser": "root",
+
+  "workspaceFolder": "/home/drake",
+
+  "workspaceMount": "source=${localWorkspaceFolder},target=/home/drake,type=bind,consistency=cached",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/bin/python3",
+        "python.analysis.extraPaths": [
+        "/opt/drake/lib/python3.12/site-packages" 
+        ],
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
 }
