@@ -1,8 +1,8 @@
 services:
   drake:
     build:
-      context: .
-      dockerfile: dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
     user: "${UID}:${GID}"
     environment:
       - UID=${UID}
@@ -13,9 +13,12 @@ services:
       #- /home/internal/.ssh:/root/.ssh:ro 
       # If you want to use git from inside the docker, rewrite above to your SSH key Location
       - ..:/home/drake
-      - /home/drake/.venv
+      - venv-volume:/home/drake/.venv
     working_dir: /home/drake
     network_mode: host
     stdin_open: true
     tty: true
     command: bash
+
+volumes:
+  venv-volume:

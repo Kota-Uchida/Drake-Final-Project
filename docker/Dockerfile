@@ -20,12 +20,15 @@ RUN git config --global --add safe.directory /app
 # Dependency installation layer (cached)
 # Mount pyproject.toml & uv.lock only for dependency caching
 RUN --mount=type=cache,target=/.cache/uv \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml,readonly \
-    --mount=type=bind,source=uv.lock,target=uv.lock,readonly \
+    --mount=type=bind,source=../pyproject.toml,target=pyproject.toml,readonly \
+    --mount=type=bind,source=../uv.lock,target=uv.lock,readonly \
     uv sync --locked --no-install-project
 
 # Add full source code
 ADD .. /home/drake
+
+COPY docker/aliases.sh /etc/profile.d/aliases.sh
+RUN echo "source /etc/profile.d/aliases.sh" >> /etc/bash.bashrc
 
 # Final sync to install your project itself
 RUN --mount=type=cache,target=/.cache/uv \
