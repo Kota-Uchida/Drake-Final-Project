@@ -8,7 +8,8 @@ services:
       - UID=${UID}
       - GID=${GID}
     image: drake:my-project
-    runtime: nvidia
+    # Uncomment below to enable nvidia gpu runtime.
+    #runtime: nvidia
     container_name: drake
     volumes:
       #- /home/internal/.ssh:/root/.ssh:ro 
