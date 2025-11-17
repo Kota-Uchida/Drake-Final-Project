@@ -8,7 +8,7 @@ directives:
         iiwa_joint_3: [0]
         iiwa_joint_4: [-1.2]
         iiwa_joint_5: [0]
-        iiwa_joint_6: [1.6]
+        iiwa_joint_6: [0]
         iiwa_joint_7: [0]
 - add_weld:
     parent: world
@@ -45,22 +45,26 @@ directives:
 - add_model:
     name: baseball
     file: package://assets/baseball/baseball.sdf
+
+
+- add_model:
+    name: table
+    file: package://assets/table/table.sdf
 - add_weld:
     parent: world
-    child: baseball::baseball_link
+    child: table::table_link
     X_PC:
-        translation: [-0.6, 0, 0.05]
+        translation: [0.0, 0.0, -0.05]
         rotation: !Rpy { deg: [0, 0, 0] }
 
 - add_model:
     name: bat
     file: package://assets/bat/bat.sdf
-- add_weld:
-    parent: world
-    child: bat::bat_link
-    X_PC:
-        translation: [-1.4, 0, 0.05]
-        rotation: !Rpy { deg: [0, 0, 0] }
+    default_free_body_pose:
+        bat_link:
+            base_frame: wsg::body
+            translation: [0.0, 0.045, 0.12]
+            rotation: !Rpy { deg: [-90, 0, 0] }
 
 cameras:
     camera0:

@@ -8,6 +8,10 @@
 
   "workspaceMount": "source=${localWorkspaceFolder},target=/home/drake,type=bind,consistency=cached",
 
+  "runArgs": [
+    "--gpus=all"
+  ],
+
   "customizations": {
     "vscode": {
       "extensions": [
