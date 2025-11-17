@@ -6,6 +6,9 @@ build-backend = "scikit_build_core.build"
 testpaths = ["test/python"]
 addopts = "-v --disable-warnings"
 
+[tool.uv.sources]
+manipulation = { git = "https://github.com/RussTedrake/manipulation.git" }
+
 [project]
 name = "drake-final-project"
 version = "0.1.0"
@@ -22,4 +25,6 @@ dependencies = [
     "scikit-build-core",
     "pydrake>=0.2.1",
     "drake>=1.46.0",
+    "hydra-core>=1.3.2",
+    "manipulation",
 ]

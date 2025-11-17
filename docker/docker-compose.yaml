@@ -8,6 +8,7 @@ services:
       - UID=${UID}
       - GID=${GID}
     image: drake:my-project
+    runtime: nvidia
     container_name: drake
     volumes:
       #- /home/internal/.ssh:/root/.ssh:ro 
@@ -19,6 +20,11 @@ services:
     stdin_open: true
     tty: true
     command: bash
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
 
 volumes:
   venv-volume:
