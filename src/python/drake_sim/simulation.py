@@ -19,26 +19,32 @@ from pydrake.manipulation import SchunkWsgPositionController
 from utils import RenderDiagramPNG, ThrowObjectTowardsTarget
 from controller import SimpleController, WSGController
 
-import hydra
-from omegaconf import OmegaConf
+from dataclasses import dataclass
+import yaml
+
+@dataclass
+class SimulationConfigs:
+    scenario_dir: str
+    scenario_name: str
+    model_path: str
+    simulation_time: float
 
 
 class SimulationMaster:
-    def __init__(self, scenario_path: str = None, model_path: str = None):
+    def __init__(self, cfg: SimulationConfigs):
         print("                                                            ")
         print("####################   Starting Meshcat   ##################")
         self.meshcat = StartMeshcat()
         print("############################################################")
         print("                                                            ")
+        
+        self.cfg = cfg
         self.builder = DiagramBuilder()
-        self.scenario_name = "test.yaml"
-        self.scenario_path = scenario_path
+        self.scenario_path = os.path.join(cfg.scenario_dir, cfg.scenario_name)
         self.scenario = LoadScenario(filename=self.scenario_path)
-        self.station = MakeHardwareStation(scenario=self.scenario, meshcat=self.meshcat, parser_preload_callback=lambda p: p.package_map().AddPackageXml(model_path))
+        self.station = MakeHardwareStation(scenario=self.scenario, meshcat=self.meshcat, parser_preload_callback=lambda p: p.package_map().AddPackageXml(cfg.model_path))
         self.scene_graph = self.station.GetSubsystemByName("scene_graph")
         self.plant = self.station.GetSubsystemByName("plant")
-        self.props = ProximityProperties()
-        AddContactMaterial(dissipation=0.1, point_stiffness=1e3, properties=self.props)
 
         self.diagram = None
         self.simulator = None
@@ -58,15 +64,13 @@ class SimulationMaster:
     def _add_systems(self):
         self.builder.AddSystem(self.station)
 
+        # Controller for iiwa
         q0 = np.array([0, 0.1, 0, -1.2, 0, 0, 0])
         self.controller = SimpleController(k_p=90.0, k_i=500.0, k_d=1000000.0, q_desired=q0)
         self.builder.AddSystem(self.controller)
 
-        # Replaced with SchunkWsgPositionController
-        # wsg_desired = np.array([0.0, -0.0])
-        # self.wsg_controller = WSGController(position_desired=wsg_desired, k_p=10.0, k_i = 600.0, k_d=100.0, max_torque=6.5)
-        # self.builder.AddSystem(self.wsg_controller)
-
+        # Position controller for WSG
+        # TODO: Replace this with force controller
         self.wsg_position_controller = SchunkWsgPositionController(kp_command=100.0, kd_command=5.0, kp_constraint=1500.0, kd_constraint=5.0, default_force_limit=100.0)
         self.builder.AddSystem(self.wsg_position_controller)
 
@@ -121,8 +125,6 @@ class SimulationMaster:
 
         
 
-
-
     def _output_diagram(self):
         # Uncomment to visualize the system diagram    
         #RenderDiagramPNG(self.diagram, max_depth=1)
@@ -153,7 +155,11 @@ class SimulationMaster:
 if __name__ == "__main__":
     scenario_path = os.path.join('../../../scenarios', "test.yaml")
     model_path = os.path.join('../../../assets', "package.xml")
-    sim_master = SimulationMaster(scenario_path=scenario_path, model_path=model_path)
+    config_path = os.path.join("../../../conf", "config.yaml")
+    with open(config_path, 'r') as f:
+        raw = yaml.safe_load(f)
+    cfg = SimulationConfigs(**raw["simulation"])
+    sim_master = SimulationMaster(cfg)
     sim_master.execute_simulation()
 
 
