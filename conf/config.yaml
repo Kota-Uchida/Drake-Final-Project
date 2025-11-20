@@ -1,0 +1,5 @@
+simulation:
+  scenario_dir: ../../../scenarios
+  scenario_name: test.yaml
+  model_path: ../../../assets/package.xml
+  simulation_time: 4.0
