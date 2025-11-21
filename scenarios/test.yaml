@@ -30,8 +30,8 @@ directives:
 - add_frame:
     name: camera0_origin
     X_PF:
-        base_frame: wsg::body
-        translation: [0.0, 0.04, -0.04]
+        base_frame: world
+        translation: [1.0, 1.0, 1.5]
         rotation: !Rpy { deg: [-90, 0, 0] }
 
 - add_model:
@@ -39,7 +39,7 @@ directives:
     file: package://manipulation/camera_box.sdf
 
 - add_weld:
-    parent: wsg::camera0_origin
+    parent: WorldModelInstance::camera0_origin
     child: camera0::base
 
 - add_model:
@@ -69,6 +69,6 @@ directives:
 cameras:
     camera0:
         name: camera0
-        depth: False
+        depth: True
         X_PB:
             base_frame: camera0::base

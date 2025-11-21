@@ -17,7 +17,8 @@ from pydrake.geometry import ProximityProperties, AddContactMaterial, Sphere
 from pydrake.manipulation import SchunkWsgPositionController
 
 from utils import RenderDiagramPNG, ThrowObjectTowardsTarget
-from controller import SimpleController, WSGController
+from controller import SimpleController
+from perception import add_depth_cameras, PointCloudSystem
 
 from dataclasses import dataclass
 import yaml
@@ -66,7 +67,7 @@ class SimulationMaster:
 
         # Controller for iiwa
         q0 = np.array([0, 0.1, 0, -1.2, 0, 0, 0])
-        self.controller = SimpleController(k_p=90.0, k_i=500.0, k_d=1000000.0, q_desired=q0)
+        self.controller = SimpleController(k_p=90.0, k_i=500.0, k_d=2000000.0, q_desired=q0)
         self.builder.AddSystem(self.controller)
 
         # Position controller for WSG
@@ -77,6 +78,12 @@ class SimulationMaster:
         self.wsg_desired_source = ConstantVectorSource(np.array([0.0]))
 
         self.builder.AddSystem(self.wsg_desired_source)
+
+        self.cameras, camera_transforms,camera_config =add_depth_cameras(self.builder, self.station, self.plant, self.scene_graph , 800, 600, 4, 5, 7.0, [1.0 , 0.0, 1.5])
+
+        self.point_cloud_system = PointCloudSystem(self.cameras, camera_transforms, camera_config, self.builder, self.station, self.meshcat)
+
+        self.builder.AddSystem(self.point_cloud_system)
 
     def _connect_systems(self):
         # Connect systems as needed
@@ -100,6 +107,7 @@ class SimulationMaster:
             self.wsg_position_controller.get_generalized_force_output_port(),
             self.station.GetInputPort("wsg_actuation")
         )
+        self.point_cloud_system.ConnectCameras(self.station, self.builder, self.cameras)
 
         self.diagram = self.builder.Build()
 
@@ -127,14 +135,14 @@ class SimulationMaster:
 
     def _output_diagram(self):
         # Uncomment to visualize the system diagram    
-        #RenderDiagramPNG(self.diagram, max_depth=1)
+        RenderDiagramPNG(self.diagram, max_depth=1)
         pass
 
     def _setup_simulation(self):
         self.simulator = Simulator(self.diagram, self.context_diagram)
         self.simulator.set_target_realtime_rate(1.0)
         self.meshcat.StartRecording()
-        self.simulator.AdvanceTo(4.0)
+        self.simulator.AdvanceTo(self.cfg.simulation_time)
         self.meshcat.PublishRecording()
     
     def _save_results(self):
@@ -150,11 +158,7 @@ class SimulationMaster:
         self._save_results()
 
 
-
-
 if __name__ == "__main__":
-    scenario_path = os.path.join('../../../scenarios', "test.yaml")
-    model_path = os.path.join('../../../assets', "package.xml")
     config_path = os.path.join("../../../conf", "config.yaml")
     with open(config_path, 'r') as f:
         raw = yaml.safe_load(f)
