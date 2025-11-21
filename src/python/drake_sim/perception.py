@@ -27,6 +27,7 @@ from pydrake.all import (
     SceneGraph,
     GeometryFrame,
     GeometryInstance,
+    ModelInstanceIndex
 )
 
 from pydrake.multibody.parsing import Parser
@@ -35,9 +36,43 @@ import numpy.typing as npt
 import itertools
 
 from pydrake.perception import DepthImageToPointCloud
+from pydrake.visualization import AddFrameTriadIllustration
+
+from manipulation.meshcat_utils import AddMeshcatTriad
+from manipulation.station import (
+    AddPointClouds,
+    LoadScenario,
+    MakeHardwareStation,
+    RobotDiagram,
+)
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+def calc_camera_poses(
+        horizontal_num: int,
+        vertical_num: int,
+        camera_distance: float,
+        cameras_center: npt.NDArray[np.float32]
+    ) -> List[RigidTransform]:
+    """
+    Calculate camera poses in a hemisphere arrangement around a given center point.
+    Args:
+        horizontal_num: Number of cameras in the horizontal direction.
+        vertical_num: Number of cameras in the vertical direction.
+        camera_distance: Distance from the center point to each camera.
+        cameras_center: 3D coordinates of the center point around which cameras are arranged.
+    Returns:
+        A list of RigidTransform instances representing the transforms of each camera.
+    """
+    camera_transforms = []
+    thetas = np.linspace(0, 2*np.pi, horizontal_num, endpoint=False)
+    phis = np.linspace(np.pi/2, np.pi, vertical_num + 1)[:-1]  # Exclude the top point
+    for theta, phi in itertools.product(thetas, phis):
+        transform = RigidTransform(RollPitchYaw(0, 0, theta).ToRotationMatrix() @ RollPitchYaw(phi, 0, 0).ToRotationMatrix(), cameras_center) @ RigidTransform([0, 0, -camera_distance])
+        camera_transforms.append(transform)
+
+    return camera_transforms
 
 """""""""""
 add_cameras function cited from
@@ -50,6 +85,7 @@ def add_depth_cameras(
         station: Diagram,
         plant: MultibodyPlant,
         scene_graph: SceneGraph,
+        meshcat: Meshcat,
         camera_width: int,
         camera_height: int,
         horizontal_num: int,
@@ -89,11 +125,12 @@ def add_depth_cameras(
     camera_systems = []
     camera_transforms = []
     thetas = np.linspace(0, 2*np.pi, horizontal_num, endpoint=False)
-    phis = np.linspace(0, -np.pi/2, vertical_num + 1)[1:]  # Exclude the top point
+    phis = np.linspace(np.pi/2, np.pi, vertical_num + 1)[:-1]  # Exclude the top point
 
     for idx, (theta, phi) in enumerate(itertools.product(thetas, phis)):
         name = f"camera{idx}_group{group_idx}"
         transform = RigidTransform(RollPitchYaw(0, 0, theta).ToRotationMatrix() @ RollPitchYaw(phi, 0, 0).ToRotationMatrix(), cameras_center) @ RigidTransform([0, 0, -camera_distance])
+        print(f"Adding camera: {name} at translation: {transform.translation()}")
         _, depth_camera = camera_config.MakeCameras()
         camera = builder.AddSystem(
             RgbdSensor(
@@ -102,13 +139,13 @@ def add_depth_cameras(
                 depth_camera=depth_camera
             )
         )
+        AddMeshcatTriad(meshcat=meshcat, path=f"{name}_triad", length=0.2, radius=0.002, opacity=0.8, X_PT=transform)
 
-        parser = Parser(plant=plant)
-        model = parser.AddModels("package://assets/camera_box/camera_box.sdf")
-        plant.SetFreeBodyPose(
-            plant.GetBodyByName("camera_box", model),
-            transform
-        )
+        # plant.SetFreeBodyPose(
+
+        #     plant.GetBodyByName("base", camera_model_instance),
+        #     transform
+        # )
         # scene_id = scene_graph.RegisterSource(f"{name}_source")
         # geometry_frame = GeometryFrame(f"{name}_frame", frame_group_id=1)
         # geometry_instance = GeometryInstance(transform, None, f"{name}_geometry")
@@ -123,7 +160,9 @@ def add_depth_cameras(
             station.GetOutputPort("query_object"), camera.query_object_input_port()
         )
 
-        # TODO: These exports are just for debugging. Remove them later.
+        builder.ExportOutput(
+            camera.color_image_output_port(), f"{name}.rgb_image"
+        )
         builder.ExportOutput(
             camera.depth_image_32F_output_port(), f"{name}.depth_image"
         )
