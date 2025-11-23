@@ -284,8 +284,10 @@ class PointCloudSystem(LeafSystem):
             if pc.has_rgbs():
                 out_pc.mutable_rgbs()[:, out_pc.size() - pc.size(): out_pc.size()] = pc.rgbs()
 
-        if self.meshcat is not None:
-            self.meshcat.SetObject(f"{str(self)}PointCloud", out_pc, point_size=0.01, rgba=Rgba(1, 0.5, 0.5))
+
+        # This will be only implemented whne the output is read from other systems
+        # TODO: add a point cloud visualization for debugging
+        self.meshcat.SetObject(f"{str(self)}PointCloud", out_pc, point_size=0.05, rgba=Rgba(1, 0, 0))
 
         output.set_value(out_pc)
 

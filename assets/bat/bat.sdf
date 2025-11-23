@@ -11,7 +11,6 @@
         </geometry>
       </visual>
 
-      <!-- Use a mesh for collision that matches the visual scale so contact works correctly -->
       <collision name="bat_collision">
         <geometry>
           <mesh>
@@ -26,7 +25,6 @@
           <drake:point_contact_stiffness>1e11</drake:point_contact_stiffness>
           <drake:hydroelastic_modulus>1e11</drake:hydroelastic_modulus>
         </drake:proximity_properties>
-        <!-- Increase friction: tune mu / mu2 as needed (values >1 increase friction) -->
         <surface>
           <friction>
             <ode>
@@ -36,19 +34,13 @@
           </friction>
         </surface>
       </collision>
-
-      <!-- Provide inertial properties so the MultibodyPlant treats this as a proper free body -->
       <inertial>
-        <!-- Move the inertial origin from the link frame (tip) to the bat center.
-             Adjust the translation [x y z] until the bat rotates about its center.
-             Commonly the long axis is X; here we shift 0.4m along X as an example. -->
         <pose>0.40 0 0 0 0 0</pose>
-        <mass>0.5</mass>
+        <mass>1.0</mass>
         <inertia>
-          <!-- Rough diagonal inertia; adjust for correct dynamics if needed -->
-          <ixx>0.002</ixx>
-          <iyy>0.002</iyy>
-          <izz>0.0001</izz>
+          <ixx>0.000613</ixx>
+          <iyy>0.0837</iyy>
+          <izz>0.0837</izz>
           <ixy>0</ixy>
           <ixz>0</ixz>
           <iyz>0</iyz>

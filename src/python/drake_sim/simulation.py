@@ -6,7 +6,7 @@ import numpy as np
 from pydrake.all import (DiagramBuilder, InverseDynamicsController,
                          ModelInstanceIndex, MultibodyPlant, RigidTransform,
                          RotationMatrix, Simulator, StartMeshcat, ConstantVectorSource,
-                         JointStiffnessController)
+                         JointStiffnessController, Rgba)
 from pydrake.multibody.parsing import Parser
 from manipulation.station import (
     LoadScenario,
@@ -149,7 +149,7 @@ class SimulationMaster:
             plant_context=self.context_plant,
             object_name="baseball_link",
             initial_position=np.array([0.0, -10.0, 0.5]),
-            target_position=np.array([1.035, 0.2, 1.3]), # before change: [0.675, 0.2, 1.3]
+            target_position=np.array([0.63, 0.2, 1.3]), 
             target_speed_xy=7.0,
         )
 
@@ -204,6 +204,8 @@ class SimulationMaster:
             depth_uint16 = (np.clip(depth_array, 0, 10.0) * 6553.5).astype(np.uint16)
             img = Image.fromarray(depth_uint16, mode='I;16')
             img.save(depth_name)
+
+
 
         self.meshcat.PublishRecording()
     
