@@ -84,3 +84,4 @@ class WSGController(LeafSystem):
         self.previous_time = current_time
 
         output.SetFromVector(torque)
+

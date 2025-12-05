@@ -51,19 +51,8 @@ class SimulationMaster:
         self.scenario_path = os.path.join(cfg.scenario_dir, cfg.scenario_name)
         self.scenario = LoadScenario(filename=self.scenario_path)
 
-        def prefinalize_callback(parser):
-            #TODO: Add camera model instances so that the camera boxes are visible in meshcat
+        def prefinalize_callback(p):
             pass
-            # self.camera_transforms = calc_camera_poses(4, 5, 7.0, [1.0 , 0.0, 1.5]) # The arguments should match those of add_depth_cameras
-            # self.camera_model_instances = []
-            # for i, transform in enumerate(self.camera_transforms):
-            #     model_instance = parser.AddModels("../../../assets/camera_box/camera_box.sdf")
-            #     self.camera_model_instances.append(model_instance)
-            #     parser.AddWeld(
-            #         parent_frame=parser.plant().world_frame(),
-            #         child_frame=parser.plant().GetFrameByName("base", model_instance),
-            #         X_PC=transform
-            #     )
                 
 
         self.station = MakeHardwareStation(
@@ -107,7 +96,7 @@ class SimulationMaster:
 
         self.builder.AddSystem(self.wsg_desired_source)
 
-        self.cameras, self.camera_transforms,camera_config =add_depth_cameras(self.builder, self.station, self.plant, self.scene_graph, self.meshcat, 800, 600, 4, 5, 2.0, [1.0 , 0.0, 1.5])
+        self.cameras, self.camera_transforms,camera_config =add_depth_cameras(self.builder, self.station, self.plant, self.scene_graph, self.meshcat, 800, 600, 4, 5, 4.0, [1.0 , 0.0, 0.3])
 
         self.point_cloud_system = PointCloudSystem(self.cameras, self.camera_transforms, camera_config, self.builder, self.station, self.meshcat)
 
@@ -149,7 +138,7 @@ class SimulationMaster:
             plant_context=self.context_plant,
             object_name="baseball_link",
             initial_position=np.array([0.0, -10.0, 0.5]),
-            target_position=np.array([0.63, 0.2, 1.3]), 
+            target_position=np.array([1.3, 0.0, 1.0]), 
             target_speed_xy=7.0,
         )
 
@@ -166,7 +155,6 @@ class SimulationMaster:
     def _output_diagram(self):
         # Uncomment to visualize the system diagram    
         RenderDiagramPNG(self.diagram, max_depth=1)
-        pass
 
     def _setup_simulation(self):
         self.simulator = Simulator(self.diagram, self.context_diagram)
@@ -204,6 +192,9 @@ class SimulationMaster:
             depth_uint16 = (np.clip(depth_array, 0, 10.0) * 6553.5).astype(np.uint16)
             img = Image.fromarray(depth_uint16, mode='I;16')
             img.save(depth_name)
+
+            # read point cloud
+            pc = self.diagram.GetOutputPort("point_cloud").Eval(self.ctx)
 
 
 

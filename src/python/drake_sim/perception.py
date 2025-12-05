@@ -5,6 +5,7 @@ from pydrake.all import (
     DiagramBuilder,
     RgbdSensor,
     CameraConfig,
+    Concatenate,
     RigidTransform,
     RotationMatrix,
     RollPitchYaw,
@@ -27,7 +28,8 @@ from pydrake.all import (
     SceneGraph,
     GeometryFrame,
     GeometryInstance,
-    ModelInstanceIndex
+    ModelInstanceIndex,
+    MeshcatPointCloudVisualizer
 )
 
 from pydrake.multibody.parsing import Parser
@@ -35,7 +37,7 @@ from typing import Optional, Tuple, List
 import numpy.typing as npt
 import itertools
 
-from pydrake.perception import DepthImageToPointCloud
+from pydrake.perception import DepthImageToPointCloud, BaseField, Fields
 from pydrake.visualization import AddFrameTriadIllustration
 
 from manipulation.meshcat_utils import AddMeshcatTriad
@@ -114,7 +116,7 @@ def add_depth_cameras(
     
     # Camera configuration
     camera_config = CameraConfig()
-    camera_config.z_far=30
+    camera_config.z_far=20
     camera_config.width = camera_width
     camera_config.height = camera_height
     scene_graph = station.GetSubsystemByName("scene_graph")
@@ -130,7 +132,7 @@ def add_depth_cameras(
     for idx, (theta, phi) in enumerate(itertools.product(thetas, phis)):
         name = f"camera{idx}_group{group_idx}"
         transform = RigidTransform(RollPitchYaw(0, 0, theta).ToRotationMatrix() @ RollPitchYaw(phi, 0, 0).ToRotationMatrix(), cameras_center) @ RigidTransform([0, 0, -camera_distance])
-        print(f"Adding camera: {name} at translation: {transform.translation()}")
+        # print(f"Adding camera: {name} at translation: {transform.translation()}")
         _, depth_camera = camera_config.MakeCameras()
         camera = builder.AddSystem(
             RgbdSensor(
@@ -187,6 +189,7 @@ class PointCloudSystem(LeafSystem):
             meshcat: Optional[Meshcat] = None
         ):
         super().__init__()
+        print("b")
         self.cameras = cameras
         self.camera_transforms = camera_transforms
         self.depth_ports= [camera.depth_image_32F_output_port() for camera in cameras]
@@ -195,6 +198,7 @@ class PointCloudSystem(LeafSystem):
         self.meshcat = meshcat
         self.point_clouds_of_each_camera = [PointCloud() for _ in cameras]
         self.point_cloud_processed = PointCloud()
+        print("c")
 
         center_x = camera_config.width / 2.0
         center_y = camera_config.height / 2.0
@@ -205,35 +209,36 @@ class PointCloudSystem(LeafSystem):
         ]
         for _ in self.point_cloud_systems:
             builder.AddSystem(_)
+        print("d")
 
-        # self._camera_rgb_inputs = [
-        #     self.DeclareAbstractInputPort(
-        #         f"camera_{i}_rgb",
-        #         AbstractValue.Make(ImageRgba8U(self.camera_info.width(), self.camera_info.height()))
-        #     )
-        #     for i in range(len(cameras))
-        # ]
+        self._camera_rgb_inputs = [
+            self.DeclareAbstractInputPort(
+                f"camera_{i}_rgb",
+                AbstractValue.Make(ImageRgba8U(self.camera_info.width(), self.camera_info.height()))
+            )
+            for i in range(len(cameras))
+        ]
 
-        # self._camera_depth_inputs = [
-        #     self.DeclareAbstractInputPort(
-        #         f"camera_{i}_depth",
-        #         AbstractValue.Make(ImageDepth32F(self.camera_info.width(), self.camera_info.height()))
-        #     )
-        #     for i in range(len(cameras))
-        # ]
+        self._camera_depth_inputs = [
+            self.DeclareAbstractInputPort(
+                f"camera_{i}_depth",
+                AbstractValue.Make(ImageDepth32F(self.camera_info.width(), self.camera_info.height()))
+            )
+            for i in range(len(cameras))
+        ]
 
-        # self._camera_label_inputs = [
-        #     self.DeclareAbstractInputPort(
-        #         f"camera_{i}_label",
-        #         AbstractValue.Make(ImageLabel16I(self.camera_info.width(), self.camera_info.height()))
-        #     )
-        #     for i in range(len(cameras))
-        # ]
+        self._camera_label_inputs = [
+            self.DeclareAbstractInputPort(
+                f"camera_{i}_label",
+                AbstractValue.Make(ImageLabel16I(self.camera_info.width(), self.camera_info.height()))
+            )
+            for i in range(len(cameras))
+        ]
 
         self._point_cloud_inputs = [
             self.DeclareAbstractInputPort(
                 f"camera_{i}_point_cloud",
-                AbstractValue.Make(PointCloud())
+                AbstractValue.Make(PointCloud(0, fields=Fields(base_fields=BaseField.kRGBs)))
             )
             for i in range(len(cameras))
         ]
@@ -262,36 +267,62 @@ class PointCloudSystem(LeafSystem):
                 point_cloud_system.point_cloud_output_port(),
                 self._point_cloud_inputs[cameras.index(camera)]
             )
+            builder.Connect(
+                camera.color_image_output_port(),
+                self._camera_rgb_inputs[cameras.index(camera)]
+            )
+            builder.Connect(
+                camera.depth_image_32F_output_port(),
+                self._camera_depth_inputs[cameras.index(camera)]
+            )
+            builder.Connect(
+                camera.label_image_output_port(),
+                self._camera_label_inputs[cameras.index(camera)]
+            )
+        builder.ExportOutput(
+            self._point_cloud_output,
+            "point_cloud"
+        )
 
 
     def _calc_point_cloud_output(self, context: Context, output: AbstractValue):
         # First, add all point clouds from each camera
+        print("a")
         pcs = []
         total = 0
+
         # for point_cloud_system in self.point_cloud_systems:
         #     pc = point_cloud_system.point_cloud_output_port().Eval(context)
         for i, _ in enumerate(self.point_cloud_systems):
-            pc = self._point_cloud_inputs[i].Eval(context)
+            print(f"Evaluating point cloud input for camera {i}")
+            pc = self.GetInputPort(f"camera_{i}_point_cloud").Eval(context)
+            #pc = self._point_cloud_inputs[i].Eval(context)
+            print(f"Evaluated point cloud from camera {i}")
             # Transform point cloud to world frame
             #pc.mutable_xyzs()[:] = self.camera_transforms.rotation() @ pc.xyzs() + self.camera_transforms.translation().reshape(3, 1)
             pcs.append(pc)
             total += pc.size()
+            print(f"Camera {i} point cloud size: {pc.size()}")
+
+            # Use default concatenate function to aggregate point clouds
+        out_pc = Concatenate(pcs)
+        down_sampled_pc = out_pc.VoxelizedDownSample(0.01)
+        self.meshcat.SetObject(f"{str(self)}PointCloud", down_sampled_pc, point_size=0.05, rgba=Rgba(1, 0, 0))
+            
+
         # Aggregate point clouds
-        out_pc = PointCloud(total)
+        #out_pc = PointCloud(total)
         
-        for pc in pcs:
-            out_pc.mutable_xyzs()[:, out_pc.size() - pc.size(): out_pc.size()] = pc.xyzs()
-            if pc.has_rgbs():
-                out_pc.mutable_rgbs()[:, out_pc.size() - pc.size(): out_pc.size()] = pc.rgbs()
+        # for pc in pcs:
+        #     out_pc.mutable_xyzs()[:, out_pc.size() - pc.size(): out_pc.size()] = pc.xyzs()
+        #     if pc.has_rgbs():
+        #         out_pc.mutable_rgbs()[:, out_pc.size() - pc.size(): out_pc.size()] = pc.rgbs()
 
 
-        # This will be only implemented whne the output is read from other systems
-        # TODO: add a point cloud visualization for debugging
-        self.meshcat.SetObject(f"{str(self)}PointCloud", out_pc, point_size=0.05, rgba=Rgba(1, 0, 0))
+        # This will be only implemented when the output is read from other systems
+        #self.meshcat.SetObject(f"{str(self)}PointCloud", out_pc, point_size=0.05, rgba=Rgba(1, 0, 0))
 
         output.set_value(out_pc)
-
-
 
 
 
