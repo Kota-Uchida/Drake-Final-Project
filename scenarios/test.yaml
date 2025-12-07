@@ -35,14 +35,6 @@ directives:
         rotation: !Rpy { deg: [-90, 0, 0] }
 
 - add_model:
-    name: camera0
-    file: package://manipulation/camera_box.sdf
-
-- add_weld:
-    parent: WorldModelInstance::camera0_origin
-    child: camera0::base
-
-- add_model:
     name: baseball
     file: package://assets/baseball/baseball.sdf
 
@@ -60,15 +52,20 @@ directives:
 - add_model:
     name: bat
     file: package://assets/bat/bat.sdf
-    default_free_body_pose:
-        bat_link:
-            base_frame: wsg::body
-            translation: [0.0, 0.045, 0.12]
-            rotation: !Rpy { deg: [-90, 0, 0] }
+    # default_free_body_pose:
+    #     bat_link:
+    #         base_frame: wsg::body
+    #         translation: [0.0, 0.045, 0.12]
+    #         rotation: !Rpy { deg: [-90, 0, 0] }
+- add_weld:
+    parent: wsg::body
+    child: bat::bat_link
+    X_PC:
+        translation: [0.0, 0.045, 0.0]
+        rotation: !Rpy { deg: [0, 0, 0] }
 
 cameras:
     camera0:
         name: camera0
         depth: True
-        X_PB:
-            base_frame: camera0::base
+
