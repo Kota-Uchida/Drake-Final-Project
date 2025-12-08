@@ -5,9 +5,9 @@ import numpy as np
 import yaml
 from controller import (
     JointStiffnessOptimizationController,
-    OptimizeTrajectory,
     SimpleController,
 )
+from optimization import OptimizeTrajectory
 from manipulation.station import (
     LoadScenario,
     MakeHardwareStation,
@@ -25,6 +25,7 @@ from pydrake.all import (
     PixelType,
     Simulator,
     StartMeshcat,
+    ModelInstanceIndex
 )
 from pydrake.manipulation import SchunkWsgPositionController
 from pydrake.perception import BaseField, DepthImageToPointCloud
@@ -65,6 +66,7 @@ class SimulationMaster:
         )
         self.scene_graph = self.station.GetSubsystemByName("scene_graph")
         self.plant = self.station.GetSubsystemByName("plant")
+        self.iiwa_model_idx = self.plant.GetModelInstanceByName("iiwa")
 
         self.diagram = None
         self.simulator = None
@@ -147,7 +149,7 @@ class SimulationMaster:
         self.ball_trajectory_estimator = self.builder.AddSystem(
             BallTrajectoryEstimator(meshcat=self.meshcat)
         )
-        self.trajectory_optimizer = self.builder.AddSystem(OptimizeTrajectory(self.plant))
+        self.trajectory_optimizer = self.builder.AddSystem(OptimizeTrajectory(self.plant, self.iiwa_model_idx, "iiwa_link_7", np.array([0.0,0.045,0.0])))
         self.joint_stiffness_controller = self.builder.AddSystem(
             JointStiffnessOptimizationController(self.plant)
         )
@@ -157,7 +159,7 @@ class SimulationMaster:
                 self.plant.GetFrameByName("iiwa_link_7"),
                 desired_direction=0.0,
                 end_effector_offset_range=(0.5, 0.7),
-                aiming_distance_range=(0.5, 1.5),
+                aiming_distance_range=(0.5, 3.0),
                 meshcat=self.meshcat,
             )
         )
@@ -171,8 +173,12 @@ class SimulationMaster:
         self.builder.Connect(
             self.station.GetOutputPort("iiwa_state"), self.controller.get_input_port(0)
         )
+        # self.builder.Connect(
+        #     self.controller.get_output_port(0),
+        #     self.station.GetInputPort("iiwa_actuation"),
+        # )
         self.builder.Connect(
-            self.controller.get_output_port(0),
+            self.joint_stiffness_controller.get_output_port(0),
             self.station.GetInputPort("iiwa_actuation"),
         )
         self.builder.Connect(
@@ -225,12 +231,20 @@ class SimulationMaster:
             self.aiming_system.get_input_port(1),
         )
         self.builder.Connect(
-            self.aiming_system.get_output_port(0),
+            self.station.GetOutputPort("iiwa_state"),
             self.trajectory_optimizer.get_input_port(0),
         )
         self.builder.Connect(
-            self.aiming_system.get_output_port(1),
+            self.aiming_system.get_output_port(0),
             self.trajectory_optimizer.get_input_port(1),
+        )
+        self.builder.Connect(
+            self.aiming_system.get_output_port(1),
+            self.trajectory_optimizer.get_input_port(2),
+        )
+        self.builder.Connect(
+            self.aiming_system.get_output_port(2),
+            self.trajectory_optimizer.get_input_port(3),
         )
 
         # self.builder.Connect(

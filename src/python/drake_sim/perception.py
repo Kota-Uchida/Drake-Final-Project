@@ -725,6 +725,7 @@ class AimingSystem(LeafSystem):
     outputs:
         - end_effector_transform (RigidTransform): Desired end-effector transform to aim at the ball
         - end_effector_spatial_velocity (SpatialVelocity): Desired end-effector spatial velocity to aim at the ball
+        - t_s (float): Time when the ball will be hit
     parameters:
         - desirecd_direction (float): Desired direction angle in radians
         - end_effector_offset_range (tuple(float, float)): Offset range of the end-effector from the aiming point
@@ -736,7 +737,7 @@ class AimingSystem(LeafSystem):
         plant: MultibodyPlant,
         ee_frame: Frame,
         desired_direction: float = 0.0,
-        end_effector_offset_range: tuple = (0.50, 0.60),
+        end_effector_offset_range: tuple = (0.50, 0.70),
         aiming_distance_range: tuple = (0.50, 2.0),
         meshcat: Optional[Meshcat] = None,
     ):
@@ -745,6 +746,7 @@ class AimingSystem(LeafSystem):
         self.end_effector_offset_range = end_effector_offset_range
         self.aiming_distance_range = aiming_distance_range
         self.plant = plant
+        self.iiwa_idx = plant.GetModelInstanceByName("iiwa")
         self.ee_frame = ee_frame
         self.meshcat = meshcat
 
@@ -754,6 +756,7 @@ class AimingSystem(LeafSystem):
         self.spatial_velocity = self.DeclareAbstractState(
             AbstractValue.Make(SpatialVelocity())
         )
+        self.t_s = self.DeclareAbstractState(AbstractValue.Make(BasicVector(1)))
         self.DeclareAbstractInputPort(
             "predicted_trajectory", AbstractValue.Make(PiecewisePolynomial())
         )
@@ -768,6 +771,11 @@ class AimingSystem(LeafSystem):
             lambda: AbstractValue.Make(SpatialVelocity()),
             self.OutputEndEffectorSpatialVelocity,
         )
+        self.DeclareVectorOutputPort(
+            "t_s",
+            BasicVector(1),
+            self.OutputTS
+        )
         self.DeclarePeriodicPublishEvent(0.05, 0.0, self.CalcInverseKinematics)
 
     def OutputEndEffectorTransform(
@@ -781,6 +789,14 @@ class AimingSystem(LeafSystem):
     ) -> None:
         spatial_velocity = context.get_abstract_state(self.spatial_velocity).get_value()
         output.set_value(spatial_velocity)
+
+    def OutputTS(
+        self, context: Context, output: BasicVector
+    ) -> None:
+        t_s = context.get_abstract_state(self.t_s).get_value().get_value()
+        if t_s is None:
+            return
+        output.SetFromVector(t_s)
 
     def CalcInverseKinematics(self, context: Context) -> None:
         pred_traj = self.GetInputPort("predicted_trajectory").Eval(context)
@@ -912,13 +928,12 @@ class AimingSystem(LeafSystem):
                     [q_current, np.zeros(self.plant.num_positions() - len(q_current))]
                 )
             self.plant.SetPositions(plant_context, q_current)
-
             ik = InverseKinematics(self.plant, plant_context, with_joint_limits=True)
             prog = ik.get_mutable_prog()
             q = ik.q()
 
             # 位置制約: EE 原点が p_ee 近傍
-            pos_tol = 1e-3  # 許容誤差 [m]
+            pos_tol = 1e-2  # 許容誤差 [m]
             ik.AddPositionConstraint(
                 frameB=self.ee_frame,
                 p_BQ=np.zeros(3),
@@ -944,9 +959,10 @@ class AimingSystem(LeafSystem):
             result = Solve(prog)
             if not result.is_success():
                 # この打点候補は IIWA では実現できない → 次の候補へ
-                # print(
-                #     f"IK not feasible for candidate at t={t_hit:.2f}s, p_hit={p_hit}, s_opt={s_opt:.2f}m"
-                # )
+                if p_hit[0] < 3.0 and p_hit[0] > -3.0 and p_hit[1] < 3.0 and p_hit[1] > -3.0 and p_hit[2] < 4.0 and p_hit[2] > 0.0:
+                    print(
+                        f"IK not feasible for candidate at t={t_hit:.2f}s, p_hit={p_hit}, s_opt={s_opt:.2f}m"
+                    )
                 continue
 
             # IK feasible な姿勢を採用
@@ -970,8 +986,6 @@ class AimingSystem(LeafSystem):
             break
 
         if not feasible_found:
-            self.meshcat.Delete(f"{str(self)}Aiming EE")
-            self.meshcat.Delete(f"{str(self)}Aiming velocity EE")
             print("No IK-feasible aiming point found.")
             return
         if feasible_found:
@@ -1020,3 +1034,4 @@ class AimingSystem(LeafSystem):
 
         context.SetAbstractState(self.transform, X_WE_best)
         context.SetAbstractState(self.spatial_velocity, V_WE_best)
+        # context.SetAbstractState(self.t_s, BasicVector(np.array([t_hit])))

@@ -235,6 +235,7 @@ class JointStiffnessOptimizationController(LeafSystem):
         self.iiwa_end = plant.GetJointByName("iiwa_joint_7").velocity_start()
         self.q_dd = np.zeros(7)
         self._initial_guess = np.zeros(14)
+        self.iiwa_idx = plant.GetModelInstanceByName("iiwa")
 
         nq = 7
         self.DeclareVectorInputPort(name="estimated_state", size=2*nq)
@@ -251,8 +252,8 @@ class JointStiffnessOptimizationController(LeafSystem):
         qd_desired = desired_state[n_dof:2*n_dof]
 
         # Update plant context
-        self.plant.SetPositions(self.plant_context, q)
-        self.plant.SetVelocities(self.plant_context, qd)
+        self.plant.SetPositions(self.plant_context, self.iiwa_idx, q)
+        self.plant.SetVelocities(self.plant_context, self.iiwa_idx, qd)
 
         # Mass, bias, gravity, external forces
         M_matrix = self.plant.CalcMassMatrixViaInverseDynamics(self.plant_context)
@@ -282,13 +283,13 @@ class JointStiffnessOptimizationController(LeafSystem):
 
         # Linear equality: M q_dd - B tau = tau_g + f_ext - C
         A_dyn = np.hstack([M_matrix, -self._B])
-        b_dyn = tau_g + f_ext - C_matrix
-        prog.AddLinearEqualityConstraint(A_dyn, np.concatenate([q_dd, tau]), b_dyn)
+        b_dyn = (tau_g + f_ext - C_matrix).reshape(-1, 1)
+        prog.AddLinearEqualityConstraint(A_dyn, b_dyn, np.concatenate([q_dd, tau]))
 
         # Solve
         result = Solve(prog, initial_guess=self._initial_guess)
         if not result.is_success():
-            raise RuntimeError("Optimization failed to find a solution.")
+            raise RuntimeError("Optimization failed to find a solution in JointStiffnessOptimizationController.")
 
         optimal_tau = result.GetSolution(tau)
         output.SetFromVector(optimal_tau)
