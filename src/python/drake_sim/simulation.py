@@ -65,6 +65,7 @@ class SimulationMaster:
         )
         self.scene_graph = self.station.GetSubsystemByName("scene_graph")
         self.plant = self.station.GetSubsystemByName("plant")
+        self.iiwa_idx = self.plant.GetModelInstanceByName("iiwa")
 
         self.diagram = None
         self.simulator = None
@@ -147,7 +148,7 @@ class SimulationMaster:
         self.ball_trajectory_estimator = self.builder.AddSystem(
             BallTrajectoryEstimator(meshcat=self.meshcat)
         )
-        self.trajectory_optimizer = self.builder.AddSystem(OptimizeTrajectory(self.plant))
+        self.trajectory_optimizer = self.builder.AddSystem(OptimizeTrajectory(self.plant, self.iiwa_idx, "iiwa_link_7", [0, 0, 0], horizon=2.0, N_ctrl=8, num_limit_samples=10, W_a=1.0, W_r=1e-2, W_n=1.0, max_sqp_iters=5))
         self.joint_stiffness_controller = self.builder.AddSystem(
             JointStiffnessOptimizationController(self.plant)
         )
@@ -211,11 +212,6 @@ class SimulationMaster:
             self.station.GetOutputPort("iiwa_state"),
             self.joint_stiffness_controller.get_input_port(0),
         )
-
-        self.builder.Connect(
-            self.trajectory_optimizer.get_output_port(0),
-            self.joint_stiffness_controller.get_input_port(1),
-        )
         self.builder.Connect(
             self.ball_trajectory_estimator.get_output_port(1),
             self.aiming_system.get_input_port(0),
@@ -225,12 +221,20 @@ class SimulationMaster:
             self.aiming_system.get_input_port(1),
         )
         self.builder.Connect(
-            self.aiming_system.get_output_port(0),
+            self.station.GetOutputPort("iiwa_state"),
             self.trajectory_optimizer.get_input_port(0),
         )
         self.builder.Connect(
-            self.aiming_system.get_output_port(1),
+            self.aiming_system.get_output_port(0),
             self.trajectory_optimizer.get_input_port(1),
+        )
+        self.builder.Connect(
+            self.aiming_system.get_output_port(1),
+            self.trajectory_optimizer.get_input_port(2),
+        )
+        self.builder.Connect(
+            self.aiming_system.get_output_port(2),
+            self.trajectory_optimizer.get_input_port(3),
         )
 
         # self.builder.Connect(

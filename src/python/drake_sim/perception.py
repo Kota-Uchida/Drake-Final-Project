@@ -754,6 +754,8 @@ class AimingSystem(LeafSystem):
         self.spatial_velocity = self.DeclareAbstractState(
             AbstractValue.Make(SpatialVelocity())
         )
+        self.t_s = np.zeros(3)
+        self.t_s[0] = np.nan
         self.DeclareAbstractInputPort(
             "predicted_trajectory", AbstractValue.Make(PiecewisePolynomial())
         )
@@ -768,6 +770,9 @@ class AimingSystem(LeafSystem):
             lambda: AbstractValue.Make(SpatialVelocity()),
             self.OutputEndEffectorSpatialVelocity,
         )
+        self.DeclareVectorOutputPort(
+            "t_s", BasicVector(1), self.OutputTs
+        )
         self.DeclarePeriodicPublishEvent(0.05, 0.0, self.CalcInverseKinematics)
 
     def OutputEndEffectorTransform(
@@ -779,9 +784,12 @@ class AimingSystem(LeafSystem):
     def OutputEndEffectorSpatialVelocity(
         self, context: Context, output: AbstractValue
     ) -> None:
-        spatial_velocity = context.get_abstract_state(self.spatial_velocity).get_value()
-        output.set_value(spatial_velocity)
+        output.set_value(self.t_s)
 
+    def OutputTs(
+        self, context: Context, output: AbstractValue
+    ) -> None:
+        output.SetFromVector(self.t_s)
     def CalcInverseKinematics(self, context: Context) -> None:
         pred_traj = self.GetInputPort("predicted_trajectory").Eval(context)
 
@@ -1018,3 +1026,4 @@ class AimingSystem(LeafSystem):
 
         context.SetAbstractState(self.transform, X_WE_best)
         context.SetAbstractState(self.spatial_velocity, V_WE_best)
+        self.t_s[0] = t_hit - t_now
