@@ -970,8 +970,6 @@ class AimingSystem(LeafSystem):
             break
 
         if not feasible_found:
-            self.meshcat.Delete(f"{str(self)}Aiming EE")
-            self.meshcat.Delete(f"{str(self)}Aiming velocity EE")
             print("No IK-feasible aiming point found.")
             return
         if feasible_found:
