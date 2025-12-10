@@ -16,6 +16,17 @@ from pydrake.all import (
     eq,
     ge,
     le,
+    Cylinder,
+    Sphere,
+    Rgba,
+    RotationMatrix,
+    BsplineBasis,
+    BsplineTrajectory,
+    KinematicTrajectoryOptimization,
+    PositionConstraint,
+    RigidTransform,
+    OrientationConstraint
+
 )
 from pydrake.systems.framework import Context
 
@@ -24,36 +35,89 @@ class SimpleController(LeafSystem):
     """
     A simple PD controller for a 7-DOF robotic arm.
     """
-    def __init__(self, k_p: float=90.0, k_i: float=500.0, k_d: float=1000000.0, q_desired: np.ndarray=None):
+    def __init__(self, plant: MultibodyPlant,k_p: float, k_i: float, k_d: float):
         super().__init__()
+        self.plant = plant
+        self.plant_context = plant.CreateDefaultContext()
+        self.iiwa_idx = plant.GetModelInstanceByName("iiwa")
         self.k_p = k_p
         self.k_i = k_i
         self.k_d = k_d
-        self.q_desired = q_desired if q_desired is not None else np.zeros(7)
         self.DeclareVectorInputPort(name="iiwa_state", size=14)
         self.input_port = self.get_input_port(0)
+        self.q_desired = self.DeclareVectorInputPort(name="desired_state", size=14)
         self.DeclareVectorOutputPort(name="iiwa_torque", size=7, calc=self.ComputeTorque)
         self.output_port = self.get_output_port(0)
         self.previous_q = None
         self.integral_error = np.zeros(7)
         self.previous_time = 0.0
+        self.count = 0
 
     def ComputeTorque(self, context: Context, output: BasicVector) -> None:
         q = self.input_port.Eval(context)[:7]
+        q_d = self.input_port.Eval(context)[7:14]
+        q_desired = self.q_desired.Eval(context)[:7]
+        qd_desired = self.q_desired.Eval(context)[7:14]
         current_time = context.get_time()
         dt = current_time - self.previous_time
+        # M = self.plant.CalcMassMatrix(plant_context)
+        # M = M[:7, :7]
+        # C = self.plant.CalcBiasTerm(plant_context)
+        # C = C[:7]
+        self.plant.SetPositionsAndVelocities(self.plant_context, self.iiwa_idx, np.hstack((q, q_d)))
+        tau_g = self.plant.CalcGravityGeneralizedForces(self.plant_context)
+        tau_g = tau_g[:7]
+
         if dt > 0:
-            self.integral_error += (self.q_desired - q) * dt
-        torque = self.k_p * (self.q_desired - q) + self.k_i * self.integral_error + self.k_d * (self.previous_q - q) if self.previous_q is not None else np.zeros(7)
+            self.integral_error += (q_desired - q) * dt
+
+        torque = self.k_p * (q_desired - q) + self.k_i * self.integral_error + self.k_d * (qd_desired - q_d) - tau_g
         self.previous_q = q.copy()
         self.previous_time = current_time
         output.SetFromVector(torque)
+
+        # if self.count % 100 == 0:
+        #     print(f"Time: {current_time:.2f}, q: {q}, q_desired: {q_desired}, torque: {torque}, tau_g: {tau_g}, k_p*(q_desired - q): {self.k_p * (q_desired - q)}, k_d*(qd_desired - q_d): {self.k_d * (qd_desired - q_d)}")
+        # self.count += 1
+        
+    # def ComputeTorque(self, context: Context, output: BasicVector) -> None:
+    #     # Get current state
+    #     state = self.get_input_port(0).Eval(context)
+    #     q = state[:7]
+    #     q_dot = state[7:14]
+
+    #     # Get desired state
+    #     desired = self.get_input_port(1).Eval(context)
+    #     q_desired = desired[:7]
+    #     qd_desired = desired[7:14]
+
+    #     # Time step for integral
+    #     current_time = context.get_time()
+    #     dt = current_time - self.previous_time if self.previous_time > 0 else 0.0
+
+    #     # Update integral error
+    #     if dt > 0:
+    #         self.integral_error += (q_desired - q) * dt
+
+    #     # PD control + gravity compensation
+    #     tau = (
+    #         self.k_p * (q_desired - q) +
+    #         self.k_d * (qd_desired - q_dot) +
+    #         self.k_i * self.integral_error +
+    #         self.plant.CalcGravityGeneralizedForces(context)[:7]  # gravity only
+    #     )
+
+    #     # Update previous time
+    #     self.previous_time = current_time
+
+    #     # Output torque
+    #     output.SetFromVector(tau)
 
 class WSGController(LeafSystem):
     """
     A simple PD controller for a Weiss WSG gripper.
     """
-    def __init__(self, position_desired: np.ndarray, k_p: float=8.0, k_i: float=20.0, k_d: float=100.0, max_torque: float = 100.0):
+    def __init__(self, position_desired: np.ndarray, k_p: float=8.0, k_i: float=20.0, k_d: float=100.0, max_torque: float = 1000.0):
         super().__init__()
         self.position_desired = np.asarray(position_desired, dtype=float)
         self.k_p = k_p
@@ -240,6 +304,7 @@ class JointStiffnessOptimizationController(LeafSystem):
         super().__init__()
         self.plant = plant
         self.plant_context = plant.CreateDefaultContext()
+        self.iiwa_idx = plant.GetModelInstanceByName("iiwa")
         self._G = plant.GetBodyByName("body").body_frame()
         self._W = plant.world_frame()
         self._B = plant.MakeActuationMatrix()[:7, :7]
@@ -264,8 +329,8 @@ class JointStiffnessOptimizationController(LeafSystem):
         qd_desired = desired_state[n_dof:2*n_dof]
 
         # Update plant context
-        self.plant.SetPositions(self.plant_context, q)
-        self.plant.SetVelocities(self.plant_context, qd)
+        self.plant.SetPositions(self.plant_context, self.iiwa_idx, q)
+        self.plant.SetVelocities(self.plant_context, self.iiwa_idx, qd)
 
         # Mass, bias, gravity, external forces
         M_matrix = self.plant.CalcMassMatrixViaInverseDynamics(self.plant_context)
@@ -295,8 +360,8 @@ class JointStiffnessOptimizationController(LeafSystem):
 
         # Linear equality: M q_dd - B tau = tau_g + f_ext - C
         A_dyn = np.hstack([M_matrix, -self._B])
-        b_dyn = tau_g + f_ext - C_matrix
-        prog.AddLinearEqualityConstraint(A_dyn, np.concatenate([q_dd, tau]), b_dyn)
+        b_dyn = (tau_g + f_ext - C_matrix).reshape(-1, 1)
+        prog.AddLinearEqualityConstraint(A_dyn, b_dyn, np.concatenate([q_dd, tau]))
 
         # Solve
         result = Solve(prog, initial_guess=self._initial_guess)
@@ -307,6 +372,542 @@ class JointStiffnessOptimizationController(LeafSystem):
         output.SetFromVector(optimal_tau)
         self._initial_guess = np.concatenate([result.GetSolution(q_dd), optimal_tau])
 
+
+# class SimpleOptimizeTrajectory(LeafSystem):
+#     """
+#     A simple trajectory optimizer that outputs desired joint positions and velovities.
+#     Use default KinematicTrajectoryOptimization from Drake.
+#     input ports:
+#         - "iiwa_state" : BasicVector[2*nq]
+#             現在の関節状態ベクトル [q; v] （q: 位置, v: 速度）。
+#         - "goal_transform" : Abstract (RigidTransform)
+#             ストライク時のエンドエフェクタ目標姿勢（パドル位置・姿勢）。
+#         - "goal_spatial_velocity" : Abstract (SpatialVelocity)
+#             ストライク時のエンドエフェクタ目標空間速度（特に並進速度）。
+#         - "strike_time" : BasicVector[1]
+#             現在からストライクまでの時間 ts [s]。
+#             （論文の t_s。ホライゾン T 内にあると仮定）
+#     output ports:
+
+#     """
+#     def __init__(
+#             self,
+#             plant: MultibodyPlant,
+#             iiwa_instance: ModelInstanceIndex,
+#             controller_plant: MultibodyPlant,
+#             end_effector_frame_name: str,
+#             normal_offset_in_ee: np.ndarray,
+#             horizon: float = 1.5,
+#             N_ctrl: int = 20,
+#             num_limit_samples: int = 10,
+#             max_sqp_iters: int = 5,
+#             meshcat = None,
+#             logger = None,
+#     ):
+#         super().__init__()
+#         self._plant = plant
+#         self._iiwa = iiwa_instance
+#         self._controller_plant = controller_plant
+#         self.ee_frame = controller_plant.GetFrameByName(end_effector_frame_name, iiwa_instance)
+#         self._normal_offset = np.asarray(normal_offset_in_ee, dtype=float)
+#         assert self._normal_offset.shape == (3,)
+
+#         self.horizon = horizon
+#         self.N = N_ctrl
+#         self.num_limit_samples = num_limit_samples
+#         self._max_sqp_iters = max_sqp_iters
+#         self._meshcat = meshcat
+#         self._logger = logger
+
+#         self.trajectory = None
+        
+#         self._nq = plant.num_positions(iiwa_instance)
+#         self._nv = plant.num_velocities(iiwa_instance)
+#         assert self._nq == self._nv  # iiwa はそうなっているはず
+
+#         self._q_min = np.array([
+#             -2.5, -2.5, -2.5, -2.5, 2.5, -2.5, -2.5,
+#         ])
+#         self._q_max = np.array([
+#             2.5,  2.5,  2.5,  2.5,  2.5,  2.5,  2.5,
+#         ])
+#         self._q_dot_max = np.array([
+#             2.2, 2.2, 2.2, 2.2, 2.2, 2.2, 2.2,
+#         ])
+
+#         # 1. iiwa_state: [q; v]
+#         self.DeclareVectorInputPort("iiwa_state", BasicVector(2 * self._nq))
+
+#         # 2. goal_transform: RigidTransform
+#         self.DeclareAbstractInputPort(
+#             "goal_transform",
+#             AbstractValue.Make(RigidTransform())
+#         )
+
+#         # 3. goal_spatial_velocity: SpatialVelocity
+#         self.DeclareAbstractInputPort(
+#             "goal_spatial_velocity",
+#             AbstractValue.Make(SpatialVelocity())
+#         )
+
+#         # 4. strike_time: scalar ts
+#         self.DeclareVectorInputPort("strike_time", BasicVector(1))
+
+#         # 5. desired_state: [q_des; v_des]
+#         self.DeclareVectorOutputPort(
+#             "desired_state",
+#             BasicVector(2 * self._nq),
+#             self.CalcDesiredState,
+#         )
+
+#     def CalcDesiredState(self, context: Context, output: BasicVector) -> None:
+#         # Prepare plant context
+#         plant_context = self._plant.CreateDefaultContext()
+#         controller_plant_context = self._controller_plant.CreateDefaultContext()
+#         # debug print
+
+#         # Get inputs
+#         iiwa_state = self.get_input_port(0).Eval(context)
+#         X_WGoal = self.get_input_port(1).Eval(context)
+#         V_WGoal = self.get_input_port(2).Eval(context)
+#         strike_time = self.get_input_port(3).Eval(context)[0]
+#         q_current = iiwa_state[:self._nq]
+#         v_current = iiwa_state[self._nq:2*self._nq]
+
+#         # Prepare current translation of the end-effector
+#         self._plant.SetPositions(plant_context, self._iiwa, q_current)
+#         self._plant.SetVelocities(plant_context, self._iiwa, v_current)
+#         ee = self._plant.GetBodyByName("iiwa_link_7")
+#         X_WStart = self._plant.EvalBodyPoseInWorld(plant_context, ee)
+
+#         self._controller_plant.SetPositions(controller_plant_context, self._iiwa, q_current)
+#         self._controller_plant.SetVelocities(controller_plant_context, self._iiwa, v_current)
+#         ee_controller = self._controller_plant.GetBodyByName("iiwa_link_7")
+#         ee_frame_controller = ee_controller.body_frame()
+#         X_WStart_controller = self._controller_plant.EvalBodyPoseInWorld(controller_plant_context, ee_controller)
+
+#         # Prepare goal configuration velocity using Jacobian inverse
+#         J_W = self._plant.CalcJacobianSpatialVelocity(
+#             plant_context,
+#             JacobianWrtVariable.kV,
+#             self.ee_frame,
+#             self._normal_offset,
+#             self._plant.world_frame(),
+#             self._plant.world_frame(),
+#         )[:3, :self._nq]  # Take only translational part
+#         J_W_pseudo_inv = np.linalg.pinv(J_W)
+#         v_desired = J_W_pseudo_inv @ V_WGoal.translational()
+
+#         if np.any(np.isnan(v_desired)) or np.any(np.isinf(v_desired)):
+#             q_desired = q_current
+#             v_desired = np.zeros(self._nq)
+#             desired_state = np.concatenate([q_desired, v_desired])
+#             output.SetFromVector(desired_state)
+#             return
+
+
+#         # Use KinematicTrajectoryOptimization to compute desired state
+#         if self.trajectory is None:
+#             trajopt = KinematicTrajectoryOptimization(
+#                 self._nq,
+#                 self.N,
+#             )
+#         else:
+#             trajopt = KinematicTrajectoryOptimization(
+#                 self.trajectory,
+#             )
+
+        
+#         # Formulate optimization
+#         prog = trajopt.get_mutable_prog()
+
+#         # Add cost to path length
+#         trajopt.AddPathLengthCost(1.0)
+        
+#         #  Add boundary conditions
+#         trajopt.AddPositionBounds(
+#             self._plant.GetPositionLowerLimits()[:self._nq], self._plant.GetPositionUpperLimits()[:self._nq]
+#         )
+#         trajopt.AddVelocityBounds(
+#             self._plant.GetVelocityLowerLimits()[:self._nv], self._plant.GetVelocityUpperLimits()[:self._nv]
+#         )
+#         # trajopt.AddPositionBounds(
+#         #     self._q_min, self._q_max
+#         # )
+#         # print("Custom position limits:", self._q_min, self._q_max)
+#         # trajopt.AddVelocityBounds(
+#         #     -self._q_dot_max, self._q_dot_max
+#         # )
+#         # print("Custom velocity limits:", -self._q_dot_max, self._q_dot_max)
+
+#         # Add start constraint
+#         error = np.ones(3) * 2e-1
+#         start_constraint = PositionConstraint(
+#             self._controller_plant,
+#             self._controller_plant.world_frame(),
+#             X_WStart_controller.translation() - error,
+#             X_WStart_controller.translation() + error,
+#             ee_frame_controller, 
+#             [0, 0, 0],
+#             controller_plant_context
+#         )
+
+#         trajopt.AddPathPositionConstraint(start_constraint, 0.0)
+
+#         prog.AddQuadraticErrorCost(
+#             np.eye(self._nq),
+#             q_current,
+#             trajopt.control_points()[:, 0]
+#         )
+
+#         # Add goal constraint
+#         goal_constraint = PositionConstraint(
+#             self._controller_plant,
+#             self._controller_plant.world_frame(),
+#             X_WGoal.translation() - error,
+#             X_WGoal.translation() + error,
+#             ee_frame_controller,
+#             [0, 0, 0],
+#             controller_plant_context
+#         )
+
+#         trajopt.AddPathPositionConstraint(goal_constraint, 1.0)
+#         prog.AddQuadraticErrorCost(
+#             np.eye(self._nq),
+#             q_current,
+#             trajopt.control_points()[:, -1]
+#         )
+
+#         # start at the current velocity
+#         v_error = np.ones(7) * 1e-2
+#         trajopt.AddPathVelocityConstraint(
+#             v_current - v_error, v_current + v_error, 0.0
+#         )
+
+#         # end at the desired velocity
+#         trajopt.AddPathVelocityConstraint(
+#             v_desired - v_error, v_desired + v_error, 1.0
+#         )
+
+#         # Solve optimization
+#         if self.trajectory is not None:
+#             result = Solve(prog, initial_guess=self.trajectory)
+#         else:
+#             result = Solve(prog)
+        
+#         if not result.is_success():
+#             q_desired = q_current
+#             v_desired = np.zeros(self._nq)
+#             desired_state = np.concatenate([q_desired, v_desired])
+#             output.SetFromVector(desired_state)
+#             print("[WARNING] Trajectory optimization failed.")
+#             return
+#         print("[INFO] Trajectory optimization succeeded.")
+            
+
+#         self.trajectory = trajopt.ReconstructTrajectory(result)
+
+#         # Set Output desired state at current time
+#         tau_next = 0.05  # small time step
+#         q_desired = self.trajectory.value(tau_next)[:, 0]
+#         v_desired = self.trajectory.MakeDerivative(1).value(tau_next)[:, 0]
+#         print("Desired q:", q_desired)
+#         print("Desired v:", v_desired)
+#         desired_state = np.concatenate([q_desired, v_desired])
+#         output.SetFromVector(desired_state)
+
+#         if self._meshcat is not None:
+#             for i, tau in enumerate(np.linspace(0, 1.0, 20)):
+#                 q_i = self.trajectory.value(tau)[:, 0]
+#                 self._plant.SetPositions(plant_context, self._iiwa, q_i)
+#                 ee_body = self._plant.GetBodyByName("iiwa_link_7")
+#                 X_WB = self._plant.EvalBodyPoseInWorld(plant_context, ee_body)
+#                  # Visualize end-effector trajectory
+#                 self._meshcat.SetObject(
+#                     f"trajectory/ee_{i}",
+#                     Sphere(0.02),
+#                     Rgba(0, 0, 1.0, 0.5),
+#                 )
+#                 self._meshcat.SetTransform(
+#                     f"trajectory/ee_{i}",
+#                     X_WB
+#                 )
+
+class SimpleOptimizeTrajectory(LeafSystem):
+
+    def __init__(
+        self,
+        plant: MultibodyPlant,
+        iiwa_instance: ModelInstanceIndex,
+        controller_plant: MultibodyPlant,
+        end_effector_frame_name: str,
+        normal_offset_in_ee: np.ndarray,
+        horizon: float = 1.5,
+        N_ctrl: int = 20,
+        num_limit_samples: int = 10,
+        max_sqp_iters: int = 5,
+        meshcat=None,
+        logger=None,
+    ):
+        super().__init__()
+
+        self._plant = plant
+        self._controller_plant = controller_plant
+        self._iiwa = iiwa_instance
+        self.ee_frame = controller_plant.GetFrameByName(
+            end_effector_frame_name, iiwa_instance
+        )
+
+        self._offset = np.array(normal_offset_in_ee, float)
+        self.horizon = horizon
+        self.N = N_ctrl
+        self._meshcat = meshcat
+        self._logger = logger
+
+        self._nq = plant.num_positions(iiwa_instance)
+        self._nv = plant.num_velocities(iiwa_instance)
+
+        # I/O ports (unchanged)
+        self.DeclareVectorInputPort("iiwa_state", BasicVector(2 * self._nq))
+        self.DeclareAbstractInputPort(
+            "goal_transform", AbstractValue.Make(RigidTransform())
+        )
+        self.DeclareAbstractInputPort(
+            "goal_spatial_velocity", AbstractValue.Make(SpatialVelocity())
+        )
+        self.DeclareVectorInputPort("strike_time", BasicVector(1))
+        self.DeclareVectorOutputPort(
+            "desired_state",
+            BasicVector(2 * self._nq),
+            self.CalcDesiredState,
+        )
+
+        self._last_traj = None
+
+
+    # ===============================================================
+    # Main function that computes desired state
+    # ===============================================================
+    def CalcDesiredState(self, context, output):
+        # DEBUG
+        debug = True
+        if debug:
+            nominal_q = np.ones(self._nq) * 0.6
+            nominal_v = np.zeros(self._nq)
+            output.SetFromVector(np.concatenate([nominal_q, nominal_v]))
+
+            # visualize end-effector at nominal pose
+            plant_context = self._plant.CreateDefaultContext()
+            self._plant.SetPositions(plant_context, self._iiwa, nominal_q)
+            ee_body = self._plant.GetBodyByName("iiwa_link_7")
+            X_WB = self._plant.EvalBodyPoseInWorld(plant_context, ee_body)
+            if self._meshcat is not None:
+                self._meshcat.SetObject(
+                    "nominal_ee",
+                    Sphere(0.02),
+                    Rgba(1.0, 0, 0, 0.5),
+                )
+                self._meshcat.SetTransform(
+                    "nominal_ee",
+                    X_WB
+                )
+            return
+
+
+        # --------- Read inputs ----------
+        iiwa_state = self.get_input_port(0).Eval(context)
+        X_goal = self.get_input_port(1).Eval(context)
+        V_goal = self.get_input_port(2).Eval(context)
+        strike_time = float(self.get_input_port(3).Eval(context)[0])
+
+        if strike_time < 1e-4 or strike_time > self.horizon:
+            # Out of bounds: return current state
+            q0 = iiwa_state[:self._nq]
+            v0 = iiwa_state[self._nq:]
+            output.SetFromVector(np.concatenate([q0, v0]))
+            return
+
+         # Current state
+
+        q0 = iiwa_state[:self._nq]
+        v0 = iiwa_state[self._nq:]
+
+        # --------- Compute v_desired (IK from Jacobian) ----------
+        plant_context = self._plant.CreateDefaultContext()
+        self._plant.SetPositions(plant_context, self._iiwa, q0)
+        self._plant.SetVelocities(plant_context, self._iiwa, v0)
+
+        J = self._plant.CalcJacobianSpatialVelocity(
+            plant_context,
+            JacobianWrtVariable.kV,
+            self.ee_frame,
+            self._offset,
+            self._plant.world_frame(),
+            self._plant.world_frame(),
+        )[:3, :self._nq]
+
+        v_des = np.linalg.pinv(J) @ V_goal.translational()
+
+        if np.any(~np.isfinite(v_des)):
+            # Fail-safe
+            output.SetFromVector(np.concatenate([q0, np.zeros_like(v0)]))
+            return
+
+        # ======================================================
+        # Trajectory optimization
+        # ======================================================
+        if self._last_traj is None:
+            trajopt = KinematicTrajectoryOptimization(self._nq, self.N)
+        else:
+            trajopt = KinematicTrajectoryOptimization(self._last_traj)
+        prog = trajopt.get_mutable_prog()
+
+        # cost
+        trajopt.AddPathLengthCost(1.0)
+
+        # Joint limits
+        trajopt.AddPositionBounds(
+            self._plant.GetPositionLowerLimits()[: self._nq],
+            self._plant.GetPositionUpperLimits()[: self._nq],
+        )
+        velocity_limits = np.ones(self._nq) * 0.05  # iiwa velocity limits
+        trajopt.AddVelocityBounds(
+            -velocity_limits,
+            velocity_limits,
+        )
+
+        # ------------------------------------------------------
+        # Start/Goal constraints in task space
+        # ------------------------------------------------------
+
+        ctrl_context = self._controller_plant.CreateDefaultContext()
+        self._controller_plant.SetPositions(ctrl_context, self._iiwa, q0)
+
+        X_start = self._controller_plant.EvalBodyPoseInWorld(
+            ctrl_context, 
+            self._controller_plant.GetBodyByName("iiwa_link_7")
+        ) 
+
+        eps = np.ones(3) * 1e-2  # small tolerance
+
+        # Start position
+        cstart = PositionConstraint(
+            self._controller_plant,
+            self._controller_plant.world_frame(),
+            X_start.translation(),
+            X_start.translation(),
+            self.ee_frame,
+            np.zeros(3),
+            ctrl_context
+        )
+        trajopt.AddPathPositionConstraint(cstart, 0.0)
+
+        # Goal position
+        cgoal = PositionConstraint(
+            self._controller_plant,
+            self._controller_plant.world_frame(),
+            X_goal.translation(),
+            X_goal.translation(),
+            self.ee_frame,
+            np.zeros(3),
+            ctrl_context
+        )
+        trajopt.AddPathPositionConstraint(cgoal, 1.0)
+
+        # Start velocity
+        dv = np.ones(self._nq) * 1e-3
+        trajopt.AddPathVelocityConstraint(v0 - dv, v0 + dv, 0.0)
+
+        # End velocity
+        #trajopt.AddPathVelocityConstraint(v_des - dv, v_des + dv, 1.0)
+        zero_vec = np.zeros_like(v_des)
+        trajopt.AddPathVelocityConstraint(zero_vec, zero_vec, 1.0)
+
+        # # Start Orientation
+        # orientation_start = OrientationConstraint(
+        #     self._controller_plant,
+        #     self._controller_plant.world_frame(),
+        #     X_start.rotation(),
+        #     self.ee_frame,
+        #     RotationMatrix().Identity(),
+        #     0.1,
+        #     ctrl_context
+        # )
+        # trajopt.AddPathPositionConstraint(orientation_start, 0.0)
+
+        # # Goal Orientation
+        # orientation_goal = OrientationConstraint(
+        #     self._controller_plant,
+        #     self._controller_plant.world_frame(),
+        #     X_goal.rotation(),
+        #     self.ee_frame,
+        #     RotationMatrix().Identity(),
+        #     0.1,
+        #     ctrl_context
+        # )
+        # trajopt.AddPathPositionConstraint(orientation_goal, 1.0)
+        
+
+
+        # ------------------------------------------------------
+        # Initial guess
+        # ------------------------------------------------------
+        # linear interpolation between q0 and IK goal
+        q_goal_guess = q0 + 0.5 * (v_des * strike_time)
+
+        if self._last_traj is None:
+            for k in range(self.N):
+                alpha = k / (self.N - 1)
+                guess = (1 - alpha) * q0 + alpha * q_goal_guess
+                prog.SetInitialGuess(trajopt.control_points()[:, k], guess)
+
+        # ------------------------------------------------------
+        # Solve
+        # ------------------------------------------------------
+        result = Solve(prog)
+
+        if not result.is_success():
+            # print("[WARN] traj opt failed")
+            output.SetFromVector(np.concatenate([q0, np.zeros_like(v0)]))
+            return
+
+        traj = trajopt.ReconstructTrajectory(result)
+        self._last_traj = traj
+
+        # Return small-step future
+        if strike_time > 0:
+            t = min(0.08 / strike_time, 1.0)
+        else:
+            t = 1.0
+        qd = traj.value(t).flatten()
+        vd = traj.MakeDerivative(1).value(t).flatten()
+
+        #output.SetFromVector(np.concatenate([qd, vd]))
+        nominal_q = np.ones_like(qd)*0.6
+        nominal_v = np.zeros_like(vd)
+        output.SetFromVector(np.concatenate([nominal_q, nominal_v]))
+
+        if self._meshcat:
+            X = self._plant.SetPositions(plant_context, self._iiwa, nominal_q)
+            X = self._plant.EvalBodyPoseInWorld(
+                plant_context, 
+                self._plant.GetBodyByName("iiwa_link_7")
+            )
+            self._meshcat.SetObject("nominal", Sphere(0.03), Rgba(0,0.5,0,0.5))
+            self._meshcat.SetTransform("nominal", X)
+
+
+        # visualization
+        if self._meshcat:
+            for i, s in enumerate(np.linspace(0, 1, 20)):
+                qi = traj.value(s).flatten()
+                self._plant.SetPositions(plant_context, self._iiwa, qi)
+                X = self._plant.EvalBodyPoseInWorld(
+                    plant_context, 
+                    self._plant.GetBodyByName("iiwa_link_7")
+                )
+                self._meshcat.SetObject(f"traj/{i}", Sphere(0.02), Rgba(0,0,1,0.5))
+                self._meshcat.SetTransform(f"traj/{i}", X)
 
 
 
@@ -337,13 +938,15 @@ class OptimizeTrajectory(LeafSystem):
         iiwa_instance: ModelInstanceIndex,
         end_effector_frame_name: str,
         normal_offset_in_ee: np.ndarray,
-        horizon: float = 0.6,
+        horizon: float = 1.5,
         N_ctrl: int = 8,
         num_limit_samples: int = 10,
         W_a: float = 1.0,
         W_r: float = 1e-2,
         W_n: float = 1.0,
         max_sqp_iters: int = 5,
+        meshcat = None,
+        logger = None,
     ):
         """
         Parameters
@@ -384,18 +987,20 @@ class OptimizeTrajectory(LeafSystem):
         self._W_r = W_r
         self._W_n = W_n
         self._max_sqp_iters = max_sqp_iters
+        self._meshcat = meshcat
+        self._logger = logger
 
         # 関節数とリミット取得
         self._nq = plant.num_positions(iiwa_instance)
         self._nv = plant.num_velocities(iiwa_instance)
         assert self._nq == self._nv  # iiwa はそうなっているはず
 
-        # self._q_min = np.array([
-        #     -2.9671, -2.0944, -2.9671, -2.0944, -2.9671, -2.0944, -3.0543,
-        # ])
-        # self._q_max = np.array([
-        #     2.9671,  2.0944,  2.9671,  2.0944,  2.9671,  2.0944,  3.0543,
-        # ])
+        self._q_min = np.array([
+            -3.1, -3.1, -3.1, -3.1, 3.1, -3.1, -3.1,
+        ])
+        self._q_max = np.array([
+            3.1,  3.1,  3.1,  3.1,  3.1,  3.1,  3.1,
+        ])
         # 適当、よくわからないので、後の制約式まで含めて一旦関節制約はコメントアウトした
 
 
@@ -542,7 +1147,6 @@ class OptimizeTrajectory(LeafSystem):
         if np.any(np.isnan(Bs)):
             raise ValueError("NaN in Bezier basis at tau_s")
         dBs = self._bezier_basis_derivative(tau_s)
-        print(f"tau_s={tau_s}, ts={ts}, T={T}")
 
         # 初期条件 (4b),(4c)
         prog.AddLinearEqualityConstraint(bezier(q_ctrl, B0) - q0, np.zeros(nq))
@@ -552,20 +1156,19 @@ class OptimizeTrajectory(LeafSystem):
         prog.AddLinearEqualityConstraint(bezier(q_ctrl, Bs) - q_s, np.zeros(nq))
         prog.AddLinearEqualityConstraint(bezier(q_ctrl, dBs) - qsdot, np.zeros(nq))
 
-        # joint limit (4d): 時間サンプリング
-        # if self._num_limit_samples > 0:
-        #     taus = np.linspace(0.0, 1.0, self._num_limit_samples + 1)[1:]  # 0 は除外
-        #     for tau in taus:
-        #         Bt = self._bezier_basis(tau)
-        #         qt = bezier(q_ctrl, Bt)
-        #         for i in range(nq):
-        #             prog.AddLinearConstraint(qt[i] >= self._q_min[i])
-        #             prog.AddLinearConstraint(qt[i] <= self._q_max[i])
+        # # joint limit (4d): 時間サンプリング
+        if self._num_limit_samples > 0:
+            taus = np.linspace(0.0, 1.0, self._num_limit_samples + 1)[1:]  # 0 は除外
+            for tau in taus:
+                Bt = self._bezier_basis(tau)
+                qt = bezier(q_ctrl, Bt)
+                for i in range(nq):
+                    prog.AddLinearConstraint(qt[i] >= self._q_min[i])
+                    prog.AddLinearConstraint(qt[i] <= self._q_max[i])
 
         # EE 関連制約 (4f),(4g),(4h) を q_lin で線形化
         context = self._plant.CreateDefaultContext()
         if len(q_lin) != self._plant.num_positions(self._iiwa):
-            print(f"len(q_lin)={len(q_lin)}, expected={self._plant.num_positions(self._iiwa)}")
             q_lin = np.concatenate(
                 [q_lin, np.zeros(self._plant.num_positions(self._iiwa) - len(q_lin))]
             )
@@ -690,13 +1293,36 @@ class OptimizeTrajectory(LeafSystem):
         # t = 0 では初期条件拘束で q_des=q0 なので、
         # 少しだけ先の時刻で評価する
         T = self._horizon
-        t_now = min(0.01, T)   # 1e-2[s] だけ先
+        t_now = min(0.1, T)   # 1e-2[s] だけ先
         tau_now = t_now / T
         B_now = self._bezier_basis(tau_now)
         dB_now = self._bezier_basis_derivative(tau_now)
 
         q_des = q_ctrl @ B_now
         v_des = q_ctrl @ dB_now
+
+        # Debug: visualize trajectory in Meshcat
+        for i, tau in enumerate(np.linspace(0, 5, 40)):
+            B = self._bezier_basis(tau)
+            dB = self._bezier_basis_derivative(tau)
+            q_t = q_ctrl @ B
+            v_t = q_ctrl @ dB
+
+            context_tmp = self._plant.CreateDefaultContext()
+            self._plant.SetPositions(context_tmp, self._iiwa, q_t)
+            ee = self._plant.GetBodyByName("iiwa_link_7")
+            X_WB = self._plant.EvalBodyPoseInWorld(context_tmp, ee)
+            if self._meshcat is not None:
+                # Draw spheres along the trajectory in Meshcat
+                self._meshcat.SetObject(
+                    f"bezier_trajectory/sphere_{i}",
+                    shape = Sphere(0.02),
+                    rgba=Rgba(0.0, 1.0, 0.0, 0.5)
+                )
+                self._meshcat.SetTransform(
+                    f"bezier_trajectory/sphere_{i}",
+                    X_WB
+                )
 
         # 加速度は qdd0 をそのまま使う（軌道先頭付近の加速度）
         qdd_des = qdd0
@@ -718,14 +1344,16 @@ class OptimizeTrajectory(LeafSystem):
         goal_T = self.get_input_port(1).Eval(context)
         goal_V = self.get_input_port(2).Eval(context)
         ts = float(self.get_input_port(3).Eval(context)[0])
+        # print(f"ts={ts}, goal_T={goal_T.translation()}")
 
         q_des, v_des, _ = self._solve_mpc(q0, v0, ts, goal_T, goal_V)
 
         y = np.zeros(2 * self._nq)
         y[: self._nq] = q_des
         y[self._nq :] = v_des
-        #print(f"q_des={q_des}, v_des={v_des}")
         output.SetFromVector(y)
+        if self._logger is not None:
+            self._logger.Log(f"DesiredStateInTrajectoryOptim {y}")
 
     def CalcDesiredAcceleration(self, context, output):
         """
@@ -744,3 +1372,4 @@ class OptimizeTrajectory(LeafSystem):
 
         _, _, qdd_des = self._solve_mpc(q0, v0, ts, goal_T, goal_V)
         output.SetFromVector(qdd_des)
+

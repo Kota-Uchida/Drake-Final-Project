@@ -3,6 +3,7 @@ import pydot
 import matplotlib.pyplot as plt
 from PIL import Image
 import io
+import csv
 
 from pydrake.systems.framework import System
 from pydrake.all import (
@@ -125,4 +126,22 @@ def ThrowObjectTowardsTarget(plant: MultibodyPlant, plant_context: Context, obje
     )
 
 
+class Logger:
+    """
+    Simple logger class to log messages.
+    Stores messages and can export them as a proper CSV file.
+    """
+
+    def __init__(self):
+        self.logs = []
+
+    def Log(self, message: str):
+        self.logs.append(message)
+
+    def ExportLogsToCSV(self, file_path: str):
+        with open(file_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(["message"])  # header
+            for log in self.logs:
+                writer.writerow([log])
 

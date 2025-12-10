@@ -300,6 +300,79 @@ def add_single_depth_cameras(
     group_idx += 1
     return camera_systems, camera_transforms, camera_config
 
+def add_multiple_depth_cameras(
+    builder: DiagramBuilder,
+    station: Diagram,
+    plant: MultibodyPlant,
+    scene_graph: SceneGraph,
+    meshcat: Meshcat,
+    camera_width: int,
+    camera_height: int,
+    camera_positions: list[npt.NDArray[np.float32]],
+    cameras_center: npt.NDArray[np.float32],
+) -> Tuple[List[RgbdSensor], List[RigidTransform], CameraConfig]:
+    """
+    Adds a single cameras in a hemisphere arrangement around a given center point.
+    Args:
+        builder: DiagramBuilder to which the cameras will be added.
+        station: HardwareStation containing the scene graph.
+        plant: MultibodyPlant associated with the station.
+        camera_width: Width of each camera image.
+        camera_height: Height of each camera image.
+        camera_position: 3D coordinates of the camera position.
+        cameras_center: 3D coordinates of the center point around which cameras are arranged.
+    Returns:
+        A tuple containing:
+            - A list of RgbdSensor instances representing the added cameras.
+            - A list of RigidTransform instances representing the transforms of each camera.
+    """
+    global group_idx
+
+    # Camera configuration
+    camera_config = CameraConfig()
+    camera_config.width = camera_width
+    camera_config.height = camera_height
+    camera_config.fps = 60
+    camera_config.z_far = 30.0
+
+    scene_graph = station.GetSubsystemByName("scene_graph")
+    if not scene_graph.HasRenderer(camera_config.renderer_name):
+        scene_graph.AddRenderer(camera_config.renderer_name, MakeRenderEngineGl())
+
+    camera_systems = []
+    camera_transforms = []
+
+    for i, camera_position in enumerate(camera_positions):
+        transform = look_at_transform(camera_position, cameras_center)
+
+        camera = builder.AddSystem(
+            RgbdSensor(
+                parent_id=plant.GetBodyFrameIdIfExists(plant.world_frame().body().index()),
+                X_PB=transform,
+                depth_camera=camera_config.MakeCameras()[1],
+            )
+        )
+        name = f"camera{i}_group{group_idx}"
+        AddMeshcatTriad(
+            meshcat=meshcat,
+            path=f"{name}_triad",
+            length=0.2,
+            radius=0.002,
+            opacity=0.8,
+            X_PT=transform,
+        )
+        builder.Connect(
+            station.GetOutputPort("query_object"), camera.query_object_input_port()
+        )
+
+        builder.ExportOutput(camera.color_image_output_port(), f"{name}.rgb_image")
+        builder.ExportOutput(camera.depth_image_32F_output_port(), f"{name}.depth_image")
+        builder.ExportOutput(camera.label_image_output_port(), f"{name}.label_image")
+        camera.set_name(name)
+        camera_systems.append(camera)
+        camera_transforms.append(transform)
+    group_idx += 1
+    return camera_systems, camera_transforms, camera_config
 
 class PointCloudSystem(LeafSystem):
     def __init__(
@@ -442,7 +515,7 @@ class PointCloudSystem(LeafSystem):
 
             # Use default concatenate function to aggregate point clouds
         out_pc = Concatenate(pcs)
-        down_sampled_pc = out_pc.VoxelizedDownSample(0.005)
+        down_sampled_pc = out_pc.VoxelizedDownSample(0.002)
         # debug: visualize down-sampled point cloud
         # self.meshcat.SetObject(f"{str(self)}PointCloud", down_sampled_pc, point_size=0.05, rgba=Rgba(1, 0, 0))
 
@@ -547,6 +620,7 @@ class BallTrajectoryEstimator(LeafSystem):
 
         if center is None:
             print("No ball detected.")
+            print(f"Point cloud shape: {ball_points.shape}")
             return
         t = context.get_time()
         center = np.asarray(center).reshape(3)
@@ -621,17 +695,36 @@ class BallTrajectoryEstimator(LeafSystem):
         normal, d, inliers_plane = self.ransac_plane(
             points, threshold=0.01, max_iterations=1000
         )
-        points_plane_removed = points[~inliers_plane]
+        points = points[~inliers_plane]
+        inliers_bat, _ = self.remove_bat(
+            points, x_interval = (-2.0, 2.0), y_interval=(-2.0, 2.0)
+        )
+        points = points[~inliers_bat]
         center, inliers_sphere, masked_points = self.ransac_sphere(
-            points_plane_removed, r=r, threshold=0.005, max_iterations=1000
+            points, r=r, threshold=0.005, max_iterations=1000
         )
         ball_points = masked_points[inliers_sphere]
         return ball_points, center
+    
+    def remove_bat(self, points, x_interval: Tuple[float, float], y_interval: Tuple[float, float]):
+        """
+        Remove bat points based on bounding box
+        return: inliers
+        """
+        mask = (
+            (points[:, 0] > x_interval[0])
+            & (points[:, 0] < x_interval[1])
+            & (points[:, 1] > y_interval[0])
+            & (points[:, 1] < y_interval[1])
+        )
+        inliers = mask
+        return inliers, points[mask]
+
 
     def ransac_plane(self, points, threshold=0.01, max_iterations=1000):
         """
         RANSAC to fit plane ax + by + cz + d = 0
-        reutrn: normal, d, inliers
+        return: normal, d, inliers
         """
         X = points[:, :2]
         y = -points[:, 2]
@@ -646,8 +739,9 @@ class BallTrajectoryEstimator(LeafSystem):
         normal /= np.linalg.norm(normal)
         d = c
         return normal, d, inliers
+    
 
-    def ransac_sphere(self, points, r=0.01, threshold=0.005, max_iterations=1000):
+    def ransac_sphere(self, points, r=0.01, threshold=0.01, max_iterations=1000):
         """
         RANSAC to fit sphere (x - x0)^2 + (y - y0)^2 + (z - z0)^2 = r^2
         return: center, inliers
@@ -655,8 +749,8 @@ class BallTrajectoryEstimator(LeafSystem):
         best_inliers = None
         best_center = None
         max_inliers = 0
-        mask = points[:, 1] < -0.5
-        points = points[mask]
+        # mask = points[:, 1] < -0.5
+        # points = points[mask]
         if self.meshcat is not None:
             self.meshcat.Delete(f"{str(self)} filtered points for sphere")
             pc_debug = PointCloud(
@@ -754,7 +848,7 @@ class AimingSystem(LeafSystem):
         self.spatial_velocity = self.DeclareAbstractState(
             AbstractValue.Make(SpatialVelocity())
         )
-        self.t_s = np.zeros(3)
+        self.t_s = np.zeros(1)
         self.t_s[0] = np.nan
         self.DeclareAbstractInputPort(
             "predicted_trajectory", AbstractValue.Make(PiecewisePolynomial())
@@ -784,11 +878,13 @@ class AimingSystem(LeafSystem):
     def OutputEndEffectorSpatialVelocity(
         self, context: Context, output: AbstractValue
     ) -> None:
-        output.set_value(self.t_s)
+        spatial_velocity = context.get_abstract_state(self.spatial_velocity).get_value()
+        output.set_value(spatial_velocity)
 
     def OutputTs(
         self, context: Context, output: AbstractValue
     ) -> None:
+
         output.SetFromVector(self.t_s)
     def CalcInverseKinematics(self, context: Context) -> None:
         pred_traj = self.GetInputPort("predicted_trajectory").Eval(context)
@@ -972,7 +1068,7 @@ class AimingSystem(LeafSystem):
             bat_speed_scale = 1.0  # 必要なら調整
             v_E = bat_speed_scale * v_dir
             w_E = np.zeros(3)
-            V_WE_best = SpatialVelocity(w_E, v_E)
+            V_WE_best = SpatialVelocity(w_E, -v_E)
 
             feasible_found = True
             break
@@ -981,9 +1077,14 @@ class AimingSystem(LeafSystem):
             print("No IK-feasible aiming point found.")
             return
         if feasible_found:
+            if X_WE_best.translation()[0] <0.2 or X_WE_best.translation()[0]>2.5 or X_WE_best.translation()[2] < 0.4 or X_WE_best.translation()[2]>2.0:
+                print("Aiming point out of workspace.")
+                return
             print(
                 f"Aiming at t={t_hit:.2f}s, p_hit={p_hit}, s_opt={s_opt:.2f}m"
             )
+            if t_hit - t_now < 0.2:
+                return
             self.meshcat.Delete(f"{str(self)}Aiming EE")
             self.meshcat.SetObject(
                 f"{str(self)}Aiming EE", shape=Sphere(0.05), rgba=Rgba(0, 1, 0, 0.5)
@@ -1024,6 +1125,20 @@ class AimingSystem(LeafSystem):
                 f"{str(self)}Aiming velocity EE", V_arrow_transform
             )
 
+            self.meshcat.Delete(f"{str(self)}Aiming velocity EE sphere")
+            self.meshcat.SetObject(
+                f"{str(self)}Aiming velocity EE sphere", shape=Sphere(0.02), rgba=Rgba(1, 0, 0, 0.8)
+            )
+            # place it at the tip of the velocity arrow
+            tip_position = X_WE_best.translation() + v / v_norm * 0.13
+            V_sphere_transform = RigidTransform(
+                R,
+                tip_position,
+            )
+            self.meshcat.SetTransform(
+                f"{str(self)}Aiming velocity EE sphere", V_sphere_transform
+            )
+        self.t_s[0] = t_hit - t_now
         context.SetAbstractState(self.transform, X_WE_best)
         context.SetAbstractState(self.spatial_velocity, V_WE_best)
-        self.t_s[0] = t_hit - t_now
+

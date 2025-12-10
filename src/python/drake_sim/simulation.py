@@ -7,6 +7,7 @@ from controller import (
     JointStiffnessOptimizationController,
     OptimizeTrajectory,
     SimpleController,
+    SimpleOptimizeTrajectory
 )
 from manipulation.station import (
     LoadScenario,
@@ -17,6 +18,7 @@ from perception import (
     BallTrajectoryEstimator,
     PointCloudAggregatorSystem,
     add_single_depth_cameras,
+    add_multiple_depth_cameras
 )
 from pydrake.all import (
     CameraInfo,
@@ -25,10 +27,12 @@ from pydrake.all import (
     PixelType,
     Simulator,
     StartMeshcat,
+    Parser,
+    MultibodyPlant
 )
 from pydrake.manipulation import SchunkWsgPositionController
 from pydrake.perception import BaseField, DepthImageToPointCloud
-from utils import RenderDiagramPNG, ThrowObjectTowardsTarget
+from utils import RenderDiagramPNG, ThrowObjectTowardsTarget, Logger
 
 
 @dataclass
@@ -37,6 +41,7 @@ class SimulationConfigs:
     scenario_name: str
     model_path: str
     simulation_time: float
+    bat_sdf: str
 
 
 class SimulationMaster:
@@ -65,7 +70,25 @@ class SimulationMaster:
         )
         self.scene_graph = self.station.GetSubsystemByName("scene_graph")
         self.plant = self.station.GetSubsystemByName("plant")
+
         self.iiwa_idx = self.plant.GetModelInstanceByName("iiwa")
+        self.logger = Logger()
+
+        # Load iiwa model to another plant to use it for control
+        self.controller_plant = MultibodyPlant(0.0)
+        iiwa_url = (
+        "package://drake_models/iiwa_description/sdf/iiwa7_no_collision.sdf"
+        )
+        (iiwa,) = Parser(self.controller_plant).AddModels(url=iiwa_url)
+        (bat,) = Parser(self.controller_plant).AddModelsFromString(cfg.bat_sdf, "sdf")
+        # Define some short aliases for frames.
+        W = self.controller_plant.world_frame()
+        L0 = self.controller_plant.GetFrameByName("iiwa_link_0", iiwa)
+        L7 = self.controller_plant.GetFrameByName("iiwa_link_7", iiwa)
+        bat_link = self.controller_plant.GetFrameByName("bat_link", bat)
+        self.controller_plant.WeldFrames(W, L0)
+        self.controller_plant.WeldFrames(L7, bat_link)
+        self.controller_plant.Finalize()
 
         self.diagram = None
         self.simulator = None
@@ -85,9 +108,11 @@ class SimulationMaster:
         self.builder.AddSystem(self.station)
 
         # Controller for iiwa
-        q0 = np.array([0, 0.1, 0, -1.2, 0, 0, 0])
         self.controller = SimpleController(
-            k_p=90.0, k_i=500.0, k_d=2000000.0, q_desired=q0
+            self.plant,
+            k_p=1800,
+            k_i=0.0,
+            k_d=90,
         )
         self.builder.AddSystem(self.controller)
 
@@ -115,9 +140,20 @@ class SimulationMaster:
             self.meshcat,
             4000,
             3000,
-            np.array([1.0, 3.0, 1.0]),
+            np.array([1.0, 4.0, 1.0]),
             np.array([1.0, -10.0, 1.0]),
         )
+        # self.cameras, self.camera_transforms, camera_config = add_multiple_depth_cameras(
+        #     self.builder,
+        #     self.station,
+        #     self.plant,
+        #     self.scene_graph,
+        #     self.meshcat,
+        #     4000,
+        #     3000,
+        #     [np.array([1.0, 3.0, 1.0]), np.array([1.0, -12.0, 1.0])],
+        #     np.array([1.0, -10.0, 1.0]),
+        # )
 
         self.depth_to_point_cloud_systems = []
         for i, camera in enumerate(self.cameras):
@@ -148,10 +184,31 @@ class SimulationMaster:
         self.ball_trajectory_estimator = self.builder.AddSystem(
             BallTrajectoryEstimator(meshcat=self.meshcat)
         )
-        self.trajectory_optimizer = self.builder.AddSystem(OptimizeTrajectory(self.plant, self.iiwa_idx, "iiwa_link_7", [0, 0, 0], horizon=2.0, N_ctrl=8, num_limit_samples=10, W_a=1.0, W_r=1e-2, W_n=1.0, max_sqp_iters=5))
-        self.joint_stiffness_controller = self.builder.AddSystem(
-            JointStiffnessOptimizationController(self.plant)
-        )
+        # self.trajectory_optimizer = self.builder.AddSystem(OptimizeTrajectory(
+        #     self.plant, self.iiwa_idx, 
+        #     "iiwa_link_7", [0, 0, 0], 
+        #     horizon=2.0, 
+        #     N_ctrl=12,
+        #     num_limit_samples=20, 
+        #     W_a=1.0, 
+        #     W_r=1e-2, 
+        #     W_n=1.0, 
+        #     max_sqp_iters=5,
+        #     meshcat = self.meshcat,
+        #     logger = self.logger
+        # ))
+        self.simple_trajectory_optimizer = self.builder.AddSystem(SimpleOptimizeTrajectory(
+            self.plant, self.iiwa_idx, 
+            self.controller_plant,
+            "iiwa_link_7", [0, 0, 0], 
+            horizon=0.8, 
+            N_ctrl=8,
+            num_limit_samples=20, 
+            max_sqp_iters=5,
+            meshcat = self.meshcat,
+            logger = self.logger
+        ))
+
         self.aiming_system = self.builder.AddSystem(
             AimingSystem(
                 self.plant,
@@ -173,8 +230,7 @@ class SimulationMaster:
             self.station.GetOutputPort("iiwa_state"), self.controller.get_input_port(0)
         )
         self.builder.Connect(
-            self.controller.get_output_port(0),
-            self.station.GetInputPort("iiwa_actuation"),
+            self.simple_trajectory_optimizer.get_output_port(0), self.controller.get_input_port(1)
         )
         self.builder.Connect(
             self.station.GetOutputPort("wsg_state"),
@@ -207,11 +263,6 @@ class SimulationMaster:
             self.point_cloud_aggregator.get_output_port(0),
             self.ball_trajectory_estimator.get_input_port(0),
         )
-
-        self.builder.Connect(
-            self.station.GetOutputPort("iiwa_state"),
-            self.joint_stiffness_controller.get_input_port(0),
-        )
         self.builder.Connect(
             self.ball_trajectory_estimator.get_output_port(1),
             self.aiming_system.get_input_port(0),
@@ -222,25 +273,30 @@ class SimulationMaster:
         )
         self.builder.Connect(
             self.station.GetOutputPort("iiwa_state"),
-            self.trajectory_optimizer.get_input_port(0),
+            self.simple_trajectory_optimizer.get_input_port(0),
         )
         self.builder.Connect(
             self.aiming_system.get_output_port(0),
-            self.trajectory_optimizer.get_input_port(1),
+            self.simple_trajectory_optimizer.get_input_port(1),
         )
         self.builder.Connect(
             self.aiming_system.get_output_port(1),
-            self.trajectory_optimizer.get_input_port(2),
+            self.simple_trajectory_optimizer.get_input_port(2),
         )
         self.builder.Connect(
             self.aiming_system.get_output_port(2),
-            self.trajectory_optimizer.get_input_port(3),
+            self.simple_trajectory_optimizer.get_input_port(3),
         )
 
         # self.builder.Connect(
         #     self.joint_stiffness_controller.get_output_port(0),
-        #     self.station.GetInputPort("iiwa_actuation")
+        #     self.station.GetInputPort("iiwa_actuation"),
         # )
+
+        self.builder.Connect(
+            self.controller.get_output_port(0),
+            self.station.GetInputPort("iiwa_actuation"),
+        )
 
         self.diagram = self.builder.Build()
 
@@ -254,9 +310,9 @@ class SimulationMaster:
             plant=self.plant,
             plant_context=self.context_plant,
             object_name="baseball_link",
-            initial_position=np.array([0.0, -10.0, 0.5]),
-            target_position=np.array([1.3, 0.0, 1.0]),
-            target_speed_xy=7.0,
+            initial_position=np.array([1.0, -10.0, 1.0]),
+            target_position=np.array([1.0, 0.0, 0.8]),
+            target_speed_xy=6.0,
         )
 
         # set the initial state of wsg
@@ -272,7 +328,9 @@ class SimulationMaster:
 
     def _output_diagram(self):
         # Uncomment to visualize the system diagram
-        RenderDiagramPNG(self.diagram, max_depth=1)
+        #RenderDiagramPNG(self.diagram, max_depth=1)
+        pass
+        
 
     def _setup_simulation(self):
         self.simulator = Simulator(self.diagram, self.context_diagram)
@@ -323,8 +381,8 @@ class SimulationMaster:
 
     def _save_results(self):
         # Placeholder for saving results
+        #self.logger.ExportLogsToCSV("simulation_log.csv")
         pass
-
     def execute_simulation(self):
         self._add_systems()
         self._connect_systems()
